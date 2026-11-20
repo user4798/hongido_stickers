@@ -45,7 +45,11 @@ const FILTERS = [
 ];
 
 // 작은 잉크젯 스티커용 인쇄 보정: 중간 밝기·그림자 들어 올림, 채도 조금 ↑, 윤곽 또렷하게
-const PRINT_FIX = { gamma: 0.92, fade: 0.03, sat: 1.08, sharpen: 0.55 };
+const PRINT_FIX = {
+  gamma: 0.92, fade: 0.03, sat: 1.08,
+  sharpen: 0.14,              // 선명도 세기
+  sharpenMaxPx: 1000000,      // 이보다 큰 사진(예: 4×6 한 장)은 선명도 보정을 하지 않는다 — 작은 스티커용 보정이라서
+};
 
 // 인쇄 보정을 쓰는지 (설정 화면에서 끌 수 있음, 기본은 켜짐)
 function printFixEnabled() {
@@ -210,19 +214,17 @@ function seededRandom(seed) {
   };
 }
 
-// 윤곽 또렷하게 (언샤프 마스크, 3×3 흐림 기준)
+// 윤곽 또렷하게: 위·아래·왼쪽·오른쪽 이웃과의 차이를 조금 더한다 (가벼운 선명도 보정)
 function sharpen(data, w, h, amount) {
   const src = new Uint8ClampedArray(data);
+  const row = w * 4;
   for (let y = 1; y < h - 1; y++) {
-    for (let x = 1; x < w - 1; x++) {
-      const i = (y * w + x) * 4;
+    let i = y * row + 4;
+    for (let x = 1; x < w - 1; x++, i += 4) {
       for (let c = 0; c < 3; c++) {
-        let sum = 0;
-        for (let dy = -1; dy <= 1; dy++) {
-          for (let dx = -1; dx <= 1; dx++) sum += src[i + (dy * w + dx) * 4 + c];
-        }
-        const blur = sum / 9;
-        data[i + c] = src[i + c] + (src[i + c] - blur) * amount;
+        const k = i + c;
+        const v = src[k];
+        data[k] = v + amount * (4 * v - src[k - 4] - src[k + 4] - src[k - row] - src[k + row]);
       }
     }
   }
@@ -246,13 +248,29 @@ function applyLook(ctx, w, h, look, printFix, mode) {
   const maxR = Math.hypot(cx, cy);
   const lut = colorTable(useFilter ? f : null, amount, printFix);
   const out = [0, 0, 0];
+  const N1 = LUT_N - 1, K = N1 / 255, NN = LUT_N * LUT_N, N3 = LUT_N * 3, NN3 = NN * 3;
   // 색 단계 나누기: 보정표는 경계를 부드럽게 섞으므로, 단계는 표를 거친 뒤 따로 끊는다
   const steps = useFilter && f.posterize ? f.posterize - 1 : 0;
 
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = (y * w + x) * 4;
-      lookup(lut, d[i], d[i + 1], d[i + 2], out);
+      // 색 보정표에서 찾기 (lookup과 같은 계산을 빠르게 하려고 풀어 씀)
+      const fr = d[i] * K, fg = d[i + 1] * K, fb = d[i + 2] * K;
+      const r0 = fr | 0, g0 = fg | 0, b0 = fb | 0;
+      const dr = fr - r0, dg = fg - g0, db = fb - b0;
+      const sr = r0 < N1 ? 3 : 0, sg = g0 < N1 ? N3 : 0, sb = b0 < N1 ? NN3 : 0;
+      const p000 = (b0 * NN + g0 * LUT_N + r0) * 3;
+      const p100 = p000 + sr, p010 = p000 + sg, p110 = p010 + sr;
+      const p001 = p000 + sb, p101 = p001 + sr, p011 = p001 + sg, p111 = p011 + sr;
+      for (let c = 0; c < 3; c++) {
+        const c00 = lut[p000 + c] + (lut[p100 + c] - lut[p000 + c]) * dr;
+        const c10 = lut[p010 + c] + (lut[p110 + c] - lut[p010 + c]) * dr;
+        const c01 = lut[p001 + c] + (lut[p101 + c] - lut[p001 + c]) * dr;
+        const c11 = lut[p011 + c] + (lut[p111 + c] - lut[p011 + c]) * dr;
+        const c0 = c00 + (c10 - c00) * dg;
+        out[c] = c0 + (c01 + (c11 - c01) * dg - c0) * db;
+      }
       let r = out[0], g = out[1], b = out[2];
       if (steps) {
         const pr = Math.round(r * steps) / steps, pg = Math.round(g * steps) / steps, pb = Math.round(b * steps) / steps;
@@ -270,6 +288,6 @@ function applyLook(ctx, w, h, look, printFix, mode) {
       d[i] = r * 255; d[i + 1] = g * 255; d[i + 2] = b * 255;
     }
   }
-  if (isPrint && printFix) sharpen(d, w, h, PRINT_FIX.sharpen);
+  if (isPrint && printFix && w * h <= PRINT_FIX.sharpenMaxPx) sharpen(d, w, h, PRINT_FIX.sharpen);
   ctx.putImageData(img, 0, 0);
 }

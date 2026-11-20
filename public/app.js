@@ -5,7 +5,7 @@ let presetId = getPresetId();
 let preset = PRESETS[presetId];
 let layout = layoutOf(preset);
 
-// 칸마다 { source, edit, look, print: {blob, bytes, pxW, pxH}, previewUrl } 또는 null
+// 칸마다 { source, edit, look, preview(캔버스), print: {bytes, pxW, pxH} 또는 null(만드는 중), ready(약속) } 또는 null
 // edit = 사진 위치·배율·각도 (photo.js 참고), look = 필터 { id, amount } (filters.js 참고)
 const NO_LOOK = { id: 'none', amount: 1 };
 let cells = layout.cells.map(() => null);
@@ -15,17 +15,40 @@ let targetCell = null;   // 마지막으로 누른 칸 번호 (0부터)
 
 const $ = (id) => document.getElementById(id);
 
+// 사진을 준비하는 동안 화면을 잠그고 진행 상황을 보여 준다 (그사이 다른 버튼이 눌리지 않게)
+let busyTimer = 0;
+function setBusy(on, text = '') {
+  busy = on;
+  const el = $('busy');
+  if (!el) return;
+  $('busyText').textContent = text;
+  clearTimeout(busyTimer);
+  if (on) {
+    el.hidden = false;                                   // 바로 터치를 막고
+    busyTimer = setTimeout(() => el.classList.add('show'), 150);   // 오래 걸릴 때만 보이게
+  } else {
+    el.classList.remove('show');
+    el.hidden = true;
+  }
+}
+
 // ---------- 칸 채우기 ----------
 
+// 칸 사진 만들기: 미리 보기가 나오면 바로 칸에 보여 주고, 인쇄용 JPEG는 뒤에서 기다린다
 async function setCellPhoto(index, source, edit, look = NO_LOOK) {
-  const print = await renderForCell(source, edit, layout.cells[index], look);
-  clearCell(index);
-  cells[index] = { source, edit, look, print, previewUrl: URL.createObjectURL(print.blob) };
+  const job = renderCell(source, edit, layout.cells[index], look);
+  const preview = await job.preview;
+  const old = cells[index];
+  if (old && old.source !== source) releaseSource(old.source);
+  const entry = { source, edit, look, preview, print: null, ready: null };
+  entry.ready = job.done.then((p) => { entry.print = p; return p; });
+  entry.ready.catch(() => {});
+  cells[index] = entry;
 }
 
 function clearCell(index) {
   const c = cells[index];
-  if (c) URL.revokeObjectURL(c.previewUrl);
+  if (c) releaseSource(c.source);
   cells[index] = null;
 }
 
@@ -39,16 +62,18 @@ function emptySlotsFrom(start) {
 
 async function addFiles(files, slots) {
   if (busy || files.length === 0) return;
-  busy = true;
   const list = Array.from(files).slice(0, slots.length);
+  setBusy(true, list.length > 1 ? `사진 넣는 중 1 / ${list.length}` : '사진 넣는 중');
   slots.slice(0, list.length).forEach((i) => cellButton(i).classList.add('loading'));
   render();
   let failed = 0;
 
   for (let k = 0; k < list.length; k++) {
+    if (list.length > 1) $('busyText').textContent = `사진 넣는 중 ${k + 1} / ${list.length}`;
+    const cell = layout.cells[slots[k]];
     try {
-      const source = await loadSource(list[k]);
-      await setCellPhoto(slots[k], source, defaultEdit(source, layout.cells[slots[k]]));
+      const source = await loadSource(list[k], sourceMaxFor(cell));
+      await setCellPhoto(slots[k], source, defaultEdit(source, cell));
     } catch (e) {
       failed++;
     }
@@ -61,7 +86,7 @@ async function addFiles(files, slots) {
   if (skipped > 0) notes.push(`빈 칸이 ${slots.length}개라 ${skipped}장은 넣지 못했어요`);
   if (failed > 0) notes.push(`${failed}장은 열 수 없는 사진이었어요`);
   if (notes.length) toast(notes.join(' · '));
-  busy = false;
+  setBusy(false);
   render();
 }
 
@@ -70,7 +95,7 @@ async function addFiles(files, slots) {
 async function applyEdit(index, edit, look, applyAll) {
   const c = cells[index];
   if (!c) return;
-  busy = true;
+  setBusy(true, '사진 적용 중');
   const targets = applyAll ? cells.map((x, i) => (x ? i : -1)).filter((i) => i >= 0) : [index];
   targets.forEach((i) => cellButton(i).classList.add('loading'));
   for (const i of targets) {
@@ -79,7 +104,7 @@ async function applyEdit(index, edit, look, applyAll) {
     cellButton(i).classList.remove('loading');
     render();
   }
-  busy = false;
+  setBusy(false);
   render();
   if (applyAll && targets.length > 1) toast(`${targets.length}칸에 ${findFilter(look.id).name} 적용`);
 }
@@ -130,18 +155,40 @@ function setSkipPreflight(on) {
   try { localStorage.setItem(UI.skipPreflightKey, on ? '1' : '0'); } catch (e) { /* 저장 못 해도 동작은 계속 */ }
 }
 
+// 인쇄용 JPEG가 모두 만들어졌는지
+function printReady() {
+  return cells.filter(Boolean).every((c) => c.print);
+}
+
 function onPrint() {
   if (busy) return;
   if (!cells.some(Boolean)) {
     toast('먼저 칸을 눌러 사진을 넣어 주세요');
     return;
   }
-  if (skipPreflight()) {
+  // 아이폰 공유 화면은 버튼을 누른 그 순간에만 열 수 있어서,
+  // 인쇄용 사진이 아직 만들어지는 중이면 확인 화면을 띄우고 준비되면 버튼을 켠다.
+  if (skipPreflight() && printReady()) {
     sendToPrint();
     return;
   }
-  $('skipPreflight').checked = false;
+  $('skipPreflight').checked = skipPreflight();
   openSheet('preflight');
+  syncPrintButton();
+}
+
+function syncPrintButton() {
+  const go = $('preflightGo');
+  if (printReady()) {
+    go.disabled = false;
+    go.textContent = '확인하고 인쇄';
+    return;
+  }
+  go.disabled = true;
+  go.textContent = '사진 준비 중…';
+  Promise.all(cells.filter(Boolean).map((c) => c.ready)).then(syncPrintButton, () => {
+    go.textContent = '사진을 만들지 못했어요';
+  });
 }
 
 // ---------- 화면 ----------
@@ -182,7 +229,14 @@ function render() {
   cells.forEach((c, i) => {
     const btn = cellButton(i);
     btn.classList.toggle('filled', !!c);
-    btn.style.backgroundImage = c ? `url("${c.previewUrl}")` : '';
+    const shown = btn.querySelector('canvas');
+    if (c && shown !== c.preview) {
+      if (shown) shown.remove();
+      c.preview.className = 'cell-img';
+      btn.appendChild(c.preview);
+    } else if (!c && shown) {
+      shown.remove();
+    }
     btn.setAttribute('aria-label', c ? `${i + 1}번 칸 사진` : `${i + 1}번 칸 비어 있음, 사진 고르기`);
   });
   const count = cells.filter(Boolean).length;
@@ -261,7 +315,7 @@ async function switchPreset(id) {
     if (!ok) return;
   }
   closeSheet('presetMenu');
-  cells.forEach((c, i) => clearCellQuiet(c));
+  kept.slice(room).forEach((c) => releaseSource(c.source));
   presetId = id;
   preset = next;
   layout = nextLayout;
@@ -275,22 +329,27 @@ async function switchPreset(id) {
   // 남길 사진을 새 칸 크기에 맞춰 다시 만든다 (필터는 그대로)
   const move = kept.slice(0, room);
   if (move.length) {
-    busy = true;
+    setBusy(true, '용지에 맞추는 중');
     move.forEach((_, i) => cellButton(i).classList.add('loading'));
     for (let i = 0; i < move.length; i++) {
-      const src = move[i].source;
+      let src = move[i].source;
+      // 새 칸이 더 큰 사진을 필요로 하면 원본 파일에서 다시 만든다
+      const need = sourceMaxFor(layout.cells[i]);
+      if (need > src.maxPx && src.file) {
+        try {
+          const fresh = await loadSource(src.file, need);
+          releaseSource(src);
+          src = fresh;
+        } catch (e) { /* 실패하면 있던 크기로 */ }
+      }
       await setCellPhoto(i, src, defaultEdit(src, layout.cells[i]), move[i].look);
       cellButton(i).classList.remove('loading');
       render();
     }
-    busy = false;
+    setBusy(false);
     render();
   }
   toast(`${next.menuTitle}로 바꿨어요`);
-}
-
-function clearCellQuiet(c) {
-  if (c) URL.revokeObjectURL(c.previewUrl);
 }
 
 function openSheet(id) {

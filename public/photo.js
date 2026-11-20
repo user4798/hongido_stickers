@@ -31,21 +31,42 @@ function freeCanvas(canvas) {
   canvas.height = 0;
 }
 
-// 1) 고른 사진을 적당한 크기로 줄여 보관용 JPEG로 만든다.
-async function loadSource(file) {
+// 1) 고른 사진을 칸에 필요한 크기로 줄여 메모리에 들고 있는다.
+//    예전에는 여기서 JPEG로 다시 저장했는데, 그게 가장 오래 걸려서 없앴다.
+//    원본 파일(file)도 함께 들고 있다가, 판형을 바꿔 더 큰 크기가 필요하면 다시 만든다.
+//    <img>로 여는 이유: 사파리가 사진 방향 정보(EXIF)를 확실하게 반영해 바로 세워 준다.
+
+// 이 칸에 필요한 보관 크기 (긴 쪽 픽셀): 칸 크기 × 최대 확대, 단 상한 있음
+function sourceMaxFor(cell) {
+  const { pxW, pxH } = cellPx(cell);
+  return Math.min(PHOTO.sourceMaxPx, Math.max(pxW, pxH) * PHOTO.maxZoom);
+}
+
+async function loadSource(file, maxPx = PHOTO.sourceMaxPx) {
   const img = await loadImage(file);
   const w0 = img.naturalWidth;
   const h0 = img.naturalHeight;
-  const scale = Math.min(1, PHOTO.sourceMaxPx / Math.max(w0, h0));
+  const scale = Math.min(1, maxPx / Math.max(w0, h0));
   const w = Math.round(w0 * scale);
   const h = Math.round(h0 * scale);
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
-  canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-  const blob = await canvasToBlob(canvas, PHOTO.sourceQuality);
-  freeCanvas(canvas);
-  return { blob, w, h };
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, 0, 0, w, h);
+  let bitmap = canvas;
+  if (window.createImageBitmap) {
+    try { bitmap = await createImageBitmap(canvas); freeCanvas(canvas); } catch (e) { bitmap = canvas; }
+  }
+  return { file, bitmap, w, h, maxPx };
+}
+
+function releaseSource(source) {
+  if (!source) return;
+  if (source.bitmap && source.bitmap.close) source.bitmap.close();
+  else if (source.bitmap && source.bitmap.width !== undefined) freeCanvas(source.bitmap);
+  source.bitmap = null;
 }
 
 // 가로 사진을 세로 칸에 넣을 때(또는 반대)는 90° 돌려서 넣는다.
@@ -121,21 +142,93 @@ function drawEdited(ctx, img, source, e) {
 
 // 2) 보관용 사진을 편집값대로 칸 크기(300dpi) 사진으로 만든다. 넘치는 부분은 잘린다.
 //    look = 필터 { id, amount }. 인쇄 보정은 설정에 따라 함께 적용.
-async function renderForCell(source, edit, cell, look) {
-  const img = await loadImage(source.blob);
+//    결과는 두 번에 나눠 돌려준다:
+//      preview — 칸에 바로 보여 줄 그림 (빨리 나옴)
+//      done    — PDF에 넣을 JPEG (뒤에서 천천히 만들어짐)
+//    가능하면 웹 워커(화면과 따로 도는 계산 작업자)에서 처리해 화면이 멈추지 않게 한다.
+
+let photoWorker = null;
+let workerJobs = new Map();
+let workerSeq = 0;
+
+function startPhotoWorker() {
+  if (photoWorker !== null || typeof Worker === 'undefined' || typeof OffscreenCanvas === 'undefined') return;
+  try {
+    photoWorker = new Worker('photo-worker.js');
+    photoWorker.onmessage = (e) => {
+      const m = e.data;
+      const job = workerJobs.get(m.id);
+      if (!job) return;
+      if (m.type === 'preview') job.preview(m.bitmap);
+      else if (m.type === 'done') { job.done({ bytes: m.bytes, pxW: m.pxW, pxH: m.pxH }); workerJobs.delete(m.id); }
+      else if (m.type === 'error') { workerJobs.delete(m.id); job.fail(new Error(m.message)); }
+    };
+    photoWorker.onerror = () => stopPhotoWorker();
+  } catch (e) {
+    photoWorker = false;
+  }
+}
+
+// 워커가 이 기기에서 안 되면 끄고, 하던 일은 화면 쪽에서 다시 한다
+function stopPhotoWorker() {
+  if (photoWorker) photoWorker.terminate();
+  photoWorker = false;
+  const pending = [...workerJobs.values()];
+  workerJobs = new Map();
+  pending.forEach((job) => job.fail(new Error('worker-off')));
+}
+
+function renderCell(source, edit, cell, look) {
+  startPhotoWorker();
+  const printFix = printFixEnabled();
+  const canUseWorker = photoWorker && typeof ImageBitmap !== 'undefined' && source.bitmap instanceof ImageBitmap;
+  if (!canUseWorker) return renderOnPage(source, edit, cell, look, printFix);
+
+  let resolvePreview, rejectPreview, resolveDone, rejectDone;
+  const preview = new Promise((res, rej) => { resolvePreview = res; rejectPreview = rej; });
+  const done = new Promise((res, rej) => { resolveDone = res; rejectDone = rej; });
+  const id = ++workerSeq;
+  let gotPreview = false;
+  workerJobs.set(id, {
+    preview: (bmp) => { gotPreview = true; resolvePreview(bitmapToCanvas(bmp)); },
+    done: resolveDone,
+    fail: (err) => {
+      // 워커가 실패하면 화면 쪽에서 다시 만든다
+      const again = renderOnPage(source, edit, cell, look, printFix);
+      if (!gotPreview) again.preview.then(resolvePreview, rejectPreview);
+      again.done.then(resolveDone, rejectDone);
+    },
+  });
+  createImageBitmap(source.bitmap).then((copy) => {
+    photoWorker.postMessage({ id, bitmap: copy, w: source.w, h: source.h, edit, cell, look, printFix }, [copy]);
+  }, (err) => workerJobs.get(id) && workerJobs.get(id).fail(err));
+  return { preview, done };
+}
+
+function bitmapToCanvas(bmp) {
+  const c = document.createElement('canvas');
+  c.width = bmp.width;
+  c.height = bmp.height;
+  c.getContext('2d').drawImage(bmp, 0, 0);
+  if (bmp.close) bmp.close();
+  return c;
+}
+
+// 워커를 못 쓸 때: 화면 쪽에서 처리. 미리 보기를 먼저 돌려주고, JPEG는 잠깐 쉰 뒤에 만든다.
+function renderOnPage(source, edit, cell, look, printFix) {
   const { pxW, pxH } = cellPx(cell);
   const canvas = document.createElement('canvas');
   canvas.width = pxW;
   canvas.height = pxH;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, pxW, pxH);
   ctx.imageSmoothingQuality = 'high';
-  drawEdited(ctx, img, source, edit);
-  applyLook(ctx, pxW, pxH, look, printFixEnabled(), 'print');
-
-  const blob = await canvasToBlob(canvas, PHOTO.jpegQuality);
-  freeCanvas(canvas);
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  return { blob, bytes, pxW, pxH };
+  drawEdited(ctx, source.bitmap, source, edit);
+  applyLook(ctx, pxW, pxH, look, printFix, 'print');
+  const preview = Promise.resolve(canvas);
+  const done = new Promise((res) => setTimeout(res, 50))
+    .then(() => canvasToBlob(canvas, PHOTO.jpegQuality))
+    .then(async (blob) => ({ bytes: new Uint8Array(await blob.arrayBuffer()), pxW, pxH }));
+  return { preview, done };
 }

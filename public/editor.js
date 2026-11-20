@@ -367,7 +367,7 @@ const Editor = (() => {
     opts = o;
     ({ pxW, pxH } = cellPx(o.cell));
     edit = { ...o.edit };
-    img = await loadImage(o.source.blob);
+    img = o.source.bitmap;   // 메모리에 들고 있는 사진을 바로 쓴다 (다시 열지 않음)
     look = { ...(o.look || { id: 'none', amount: 1 }) };
     applyAll = false;
     base = makeBase(img, o.source);

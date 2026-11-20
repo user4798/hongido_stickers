@@ -46,6 +46,11 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
+  <!-- 사진 준비 중: 화면을 잠그고 진행 상황 표시 -->
+  <div id="busy" class="busy" hidden aria-live="polite">
+    <div class="busy-box"><span class="spinner"></span><span id="busyText"></span></div>
+  </div>
+
   <!-- 사진 고르기 (화면에는 안 보임) -->
   <input id="manyInput" type="file" accept="image/*" multiple hidden>
   <input id="oneInput" type="file" accept="image/*" hidden>
