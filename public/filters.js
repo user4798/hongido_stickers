@@ -16,17 +16,38 @@
 
 const FILTERS = [
   { id: 'none', name: '원본' },
-  { id: 'A6', name: 'A6', gamma: 0.97, contrast: 0.9, sat: 0.9, temp: 0.35, fade: 0.06,
-    shadow: [0.035, 0.015, -0.02], high: [0.03, 0.015, -0.025], grain: 0.035, vignette: 0.12 },
-  { id: 'A7', name: 'A7', gamma: 0.88, contrast: 0.92, sat: 0.95, temp: 0.15, fade: 0.04, matte: 0.02,
-    high: [0.02, 0.012, -0.01], grain: 0.025, vignette: 0.08 },
-  { id: 'A8', name: 'A8', gamma: 0.95, contrast: 0.88, sat: 0.82, temp: -0.12, tint: -0.06, fade: 0.07,
-    shadow: [-0.03, 0.03, 0.045], high: [0.01, 0.015, 0], grain: 0.03, vignette: 0.1 },
-  { id: 'A9', name: 'A9', gamma: 0.96, contrast: 0.85, sat: 0.75, temp: 0.25, fade: 0.1, matte: 0.04,
-    shadow: [0.02, 0.01, -0.01], high: [0.05, 0.04, -0.05], grain: 0.05, vignette: 0.15 },
-  { id: 'C1', name: 'C1', gamma: 0.97, contrast: 1.2, sat: 1.35, temp: 0.05, vignette: 0.08 },
-  { id: 'B1', name: 'B1', gamma: 0.95, contrast: 1.22, sat: 0, fade: 0.03,
-    high: [0.02, 0.012, -0.005], grain: 0.04, vignette: 0.12 },
+
+  // A4 — 따뜻하고 살짝 바랜 코닥 필름 느낌. 빨강은 깊게, 노랑은 크림색으로 연하게. 가을·꽃·테이블 사진.
+  { id: 'A4', name: 'A4', gamma: 1.0, contrast: 1.08, sat: 0.95, temp: 0.22, tint: 0.03, fade: 0.04,
+    shadow: [0.02, 0.005, -0.02],
+    hsl: [{ h: 55, w: 30, s: -0.55, l: 0.1 }, { h: 12, w: 25, s: 0.1, l: -0.03 }],
+    grain: 0.04, vignette: 0.12 },
+
+  // A6 — 밝고 깨끗하게, 진한 색에 따뜻함을 더함. 일상·풍경·인물 두루.
+  { id: 'A6', name: 'A6', gamma: 0.9, contrast: 1.04, sat: 1.06, temp: 0.15,
+    high: [0.01, 0.005, -0.005], grain: 0.02, vignette: 0.06 },
+
+  // M3 — 부드러운 갈색 톤, 살짝 바래고 차분함. 초록을 올리브·갈색 쪽으로. 가을 자연 사진.
+  //      (원래는 약간 어둡지만, 작은 스티커는 어둡게 찍히므로 어둡게 하는 정도를 줄였다)
+  { id: 'M3', name: 'M3', gamma: 1.02, contrast: 0.95, sat: 0.85, temp: 0.25, fade: 0.06,
+    shadow: [0.03, 0.015, -0.01], high: [0.02, 0.01, 0],
+    hsl: [{ h: 110, w: 50, shift: -18, s: -0.25 }],
+    grain: 0.04, vignette: 0.12 },
+
+  // C1 — 선명하고 화사한 색. 초록·빨강을 살리고 밝은 부분에 살짝 분홍빛. 꽃·자연·바다.
+  //      (진한 빨강이 잉크젯에서 뭉개지지 않게 채도를 조금 덜 올렸다)
+  { id: 'C1', name: 'C1', gamma: 0.96, contrast: 1.15, sat: 1.22, vib: 0.1, tint: 0.04,
+    high: [0.02, 0, 0.015], hsl: [{ h: 110, w: 45, s: 0.2 }], vignette: 0.06 },
+
+  // B1 — 고전적인 흑백, 대비 또렷하게, 아주 살짝 따뜻한 종이색.
+  { id: 'B1', name: 'B1', gamma: 0.94, contrast: 1.2, sat: 0, fade: 0.02,
+    high: [0.02, 0.012, -0.005], grain: 0.04, vignette: 0.1 },
+
+  // Dog1 — 중간색을 살리고 튀는 색은 차분하게. 우아하고 고요한 클래식. 크림빛 하이라이트.
+  //        (작은 스티커에서 흐려 보이지 않게 채도를 너무 많이 빼지는 않았다)
+  { id: 'Dog1', name: 'Dog1', gamma: 0.97, contrast: 0.95, sat: 0.85, vib: -0.55, temp: 0.05, tint: 0.03,
+    fade: 0.05, matte: 0.02, shadow: [0.01, 0.005, 0], high: [0.025, 0.012, 0.01],
+    grain: 0.03, vignette: 0.08 },
 ];
 
 // 작은 잉크젯 스티커용 인쇄 보정: 중간 밝기·그림자 들어 올림, 채도 조금 ↑, 윤곽 또렷하게
@@ -71,12 +92,67 @@ function grade(r, g, b, f) {
   if (f.sat !== undefined && f.sat !== 1) {
     r = l + (r - l) * f.sat; g = l + (g - l) * f.sat; b = l + (b - l) * f.sat;
   }
+  if (f.vib) {
+    // 생동감: 음수면 이미 진한 색일수록 더 차분하게 (중간색은 덜 건드림)
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    const s = mx > 0 ? (mx - mn) / mx : 0;
+    const k = Math.max(0, 1 + f.vib * s);
+    r = l + (r - l) * k; g = l + (g - l) * k; b = l + (b - l) * k;
+  }
+  if (f.hsl) [r, g, b] = hueAdjust(r, g, b, f.hsl);
   if (f.fade || f.matte) {
     const lo = f.fade || 0;
     const span = 1 - lo - (f.matte || 0);
     r = lo + clamp01(r) * span; g = lo + clamp01(g) * span; b = lo + clamp01(b) * span;
   }
   return [clamp01(r), clamp01(g), clamp01(b)];
+}
+
+// ---------- 특정 색만 보정 (예: 노랑만 연하게, 초록만 갈색 쪽으로) ----------
+// rules: [{ h: 중심 색상(도), w: 범위(도), s: 채도 변화(−1~+1), l: 밝기 변화, shift: 색상 이동(도) }]
+function rgbToHsl(r, g, b) {
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+  const l = (mx + mn) / 2;
+  if (mx === mn) return [0, 0, l];
+  const d = mx - mn;
+  const s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+  let h;
+  if (mx === r) h = ((g - b) / d + (g < b ? 6 : 0));
+  else if (mx === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  return [h * 60, s, l];
+}
+
+function hslToRgb(h, s, l) {
+  if (s === 0) return [l, l, l];
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const hk = (((h % 360) + 360) % 360) / 360;
+  const f = (t) => {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+  return [f(hk + 1 / 3), f(hk), f(hk - 1 / 3)];
+}
+
+function hueAdjust(r, g, b, rules) {
+  let [h, s, l] = rgbToHsl(clamp01(r), clamp01(g), clamp01(b));
+  if (s < 0.02) return [r, g, b];
+  let dh = 0, ds = 0, dl = 0;
+  for (const rule of rules) {
+    let diff = Math.abs(h - rule.h) % 360;
+    if (diff > 180) diff = 360 - diff;
+    const wgt = Math.max(0, 1 - diff / rule.w);
+    const smooth = wgt * wgt * (3 - 2 * wgt);
+    dh += (rule.shift || 0) * smooth;
+    ds += (rule.s || 0) * smooth;
+    dl += (rule.l || 0) * smooth * s;   // 색이 진한 곳일수록 밝기 변화도 크게
+  }
+  return hslToRgb(h + dh, clamp01(s * (1 + ds)), clamp01(l + dl));
 }
 
 // ---------- 색 보정표 (속도용) ----------
