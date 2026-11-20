@@ -253,6 +253,10 @@ body.editing { overflow: hidden; }
   flex-direction: column;
   padding: env(safe-area-inset-top) 0 var(--safe-b);
   --icon-cut: #000;
+  touch-action: none;          /* 편집 화면 어디서든 브라우저 확대·스크롤 대신 사진 편집으로 */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 .editor[hidden] { display: none; }
 

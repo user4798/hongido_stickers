@@ -15,6 +15,7 @@ const Editor = (() => {
   let wheelTimer = 0;
   let lastTap = { t: 0, x: 0, y: 0 };
   let downInfo = null;
+  let suppressClickUntil = 0;  // 두 손가락 동작 직후 버튼이 잘못 눌리는 것 막기
 
   const $ = (id) => document.getElementById(id);
 
@@ -177,18 +178,45 @@ const Editor = (() => {
     };
   }
 
+  // 화면 좌표 → 편집 캔버스 기준 좌표 (메뉴 위에서 시작한 손가락도 같은 기준으로)
+  function local(e) {
+    const r = canvas.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+
+  // 편집 화면 어디에 손가락을 대도 받는다.
+  // 한 손가락: 사진 위에서 시작했을 때만 이동 / 두 손가락: 어디서 시작하든 사진 확대·회전
   function onDown(e) {
+    if (!opts) return;
+    const onPhoto = e.target === canvas;
+    if (pointers.size === 0 && !onPhoto) {
+      // 메뉴 버튼 위 한 손가락: 버튼 누르기로 두고 기억만 해 둔다 (두 번째 손가락이 오면 확대로)
+      pointers.set(e.pointerId, { ...local(e), passive: true });
+      prev = null;
+      downInfo = null;
+      return;
+    }
     cancelAnimationFrame(anim);
-    try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* 캡처 못 해도 동작은 계속 */ }
-    pointers.set(e.pointerId, { x: e.offsetX, y: e.offsetY });
+    if (onPhoto) {
+      try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* 캡처 못 해도 동작은 계속 */ }
+    }
+    pointers.set(e.pointerId, local(e));
+    for (const p of pointers.values()) delete p.passive;
     prev = snapshot();
-    if (pointers.size === 1) downInfo = { t: performance.now(), x: e.offsetX, y: e.offsetY, moved: false };
-    else downInfo = null;
+    if (pointers.size === 1) {
+      const pt = local(e);
+      downInfo = { t: performance.now(), x: pt.x, y: pt.y, moved: false };
+    } else {
+      downInfo = null;
+      suppressClickUntil = Infinity;   // 두 손가락 동작 중에는 버튼이 눌리지 않게
+    }
   }
 
   function onMove(e) {
-    if (!pointers.has(e.pointerId)) return;
-    pointers.set(e.pointerId, { x: e.offsetX, y: e.offsetY });
+    const p = pointers.get(e.pointerId);
+    if (!p) return;
+    pointers.set(e.pointerId, { ...local(e), passive: p.passive });
+    if (p.passive) return;              // 메뉴 위 한 손가락은 무시
     const cur = snapshot();
     if (!prev || cur.n !== prev.n) { prev = cur; return; }
     const k = frame.k;
@@ -204,20 +232,27 @@ const Editor = (() => {
   }
 
   function onUp(e) {
-    if (!pointers.has(e.pointerId)) return;
+    const p = pointers.get(e.pointerId);
+    if (!p) return;
     pointers.delete(e.pointerId);
+    if (p.passive) return;              // 버튼을 그냥 누른 것
     prev = snapshot();
-    if (pointers.size > 0) return;
+    if (pointers.size > 0) {
+      for (const q of pointers.values()) delete q.passive;   // 남은 손가락으로 계속 이동
+      return;
+    }
+    if (suppressClickUntil === Infinity) suppressClickUntil = performance.now() + 400;
 
-    // 두 번 톡 → 처음 배치로
+    // 두 번 톡 → 처음 배치로 (사진 위에서만)
+    const pt = local(e);
     if (downInfo && !downInfo.moved) {
       const now = performance.now();
-      if (now - lastTap.t < 320 && Math.hypot(e.offsetX - lastTap.x, e.offsetY - lastTap.y) < 30) {
+      if (now - lastTap.t < 320 && Math.hypot(pt.x - lastTap.x, pt.y - lastTap.y) < 30) {
         lastTap = { t: 0, x: 0, y: 0 };
         animateTo(defaultEdit(opts.source, opts.cell));
         return;
       }
-      lastTap = { t: now, x: e.offsetX, y: e.offsetY };
+      lastTap = { t: now, x: pt.x, y: pt.y };
     }
     settle();
   }
@@ -225,7 +260,8 @@ const Editor = (() => {
   function onWheel(e) {
     e.preventDefault();
     cancelAnimationFrame(anim);
-    applyGesture(toCell(e.offsetX, e.offsetY), Math.exp(-e.deltaY * 0.0015), 0, 0, 0);
+    const pt = local(e);
+    applyGesture(toCell(pt.x, pt.y), Math.exp(-e.deltaY * 0.0015), 0, 0, 0);
     requestDraw();
     clearTimeout(wheelTimer);
     wheelTimer = setTimeout(settle, 220);
@@ -248,6 +284,7 @@ const Editor = (() => {
   function close() {
     cancelAnimationFrame(anim);
     pointers.clear();
+    suppressClickUntil = 0;
     $('editor').hidden = true;
     document.body.classList.remove('editing');
     img = null;
@@ -264,11 +301,19 @@ const Editor = (() => {
   function init() {
     canvas = $('editorCanvas');
     ctx = canvas.getContext('2d');
-    canvas.addEventListener('pointerdown', onDown);
-    canvas.addEventListener('pointermove', onMove);
-    canvas.addEventListener('pointerup', onUp);
-    canvas.addEventListener('pointercancel', onUp);
-    canvas.addEventListener('wheel', onWheel, { passive: false });
+    const root = $('editor');
+    root.addEventListener('pointerdown', onDown);
+    root.addEventListener('pointermove', onMove);
+    root.addEventListener('pointerup', onUp);
+    root.addEventListener('pointercancel', onUp);
+    root.addEventListener('wheel', onWheel, { passive: false });
+    // 아이폰 사파리: 편집 화면에서 두 손가락이 닿으면 화면 전체 확대를 막는다
+    root.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+    root.addEventListener('touchstart', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+    // 두 손가락 동작 직후의 버튼 눌림은 무시
+    root.addEventListener('click', (e) => {
+      if (performance.now() < suppressClickUntil) { e.stopPropagation(); e.preventDefault(); }
+    }, true);
     // 사파리가 두 손가락 동작을 화면 확대로 가로채지 않게
     ['gesturestart', 'gesturechange'].forEach((t) => document.addEventListener(t, (e) => {
       if (opts) e.preventDefault();
