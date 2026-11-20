@@ -14,7 +14,14 @@ class PdfDoc {
     this.w = widthMm;
     this.h = heightMm;
     this.pages = [];
+    this.images = [];   // { bytes: Uint8Array(JPEG), pxW, pxH }
     this.addPage();
+  }
+
+  // JPEG 사진을 (x, y) 위치에 w × h(mm) 크기로 넣는다. 회전·자르기는 미리 해 둔 사진을 넣을 것.
+  image(jpegBytes, pxW, pxH, x, y, w, h) {
+    const n = this.images.push({ bytes: jpegBytes, pxW, pxH });
+    this.ops.push(`q ${this.L(w)} 0 0 ${this.L(h)} ${this.X(x)} ${this.Y(y + h)} cm /Im${n} Do Q`);
   }
 
   addPage() {
@@ -57,16 +64,21 @@ class PdfDoc {
   }
 
   toBlob() {
+    // 글자(ASCII)와 사진(바이너리)을 섞어 담는다. 위치 계산은 바이트 수로 한다.
     const parts = [];
     const offsets = [];
     let length = 0;
-    const push = (s) => { parts.push(s); length += s.length; }; // 모두 ASCII라 글자 수 = 바이트 수
+    const push = (s) => { parts.push(s); length += s.length; }; // 글자는 모두 ASCII라 글자 수 = 바이트 수
+    const pushBytes = (b) => { parts.push(b); length += b.byteLength; };
 
     const pageCount = this.pages.length;
-    // 객체 번호: 1 Catalog, 2 Pages, 3 Font, 이후 페이지마다 (Page, Content) 2개씩
-    const pageObj = (i) => 4 + i * 2;
-    const contentObj = (i) => 5 + i * 2;
-    const total = 3 + pageCount * 2;
+    const imageCount = this.images.length;
+    // 객체 번호: 1 Catalog, 2 Pages, 3 Font, 사진마다 1개, 이후 페이지마다 (Page, Content) 2개씩
+    const imageObj = (k) => 4 + k;
+    const firstPage = 4 + imageCount;
+    const pageObj = (i) => firstPage + i * 2;
+    const contentObj = (i) => firstPage + 1 + i * 2;
+    const total = firstPage - 1 + pageCount * 2;
 
     const obj = (num, body) => {
       offsets[num] = length;
@@ -79,11 +91,22 @@ class PdfDoc {
     obj(2, `<< /Type /Pages /Kids [${kids}] /Count ${pageCount} >>`);
     obj(3, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
 
+    this.images.forEach((img, k) => {
+      offsets[imageObj(k)] = length;
+      push(`${imageObj(k)} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${img.pxW} /Height ${img.pxH} ` +
+        `/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${img.bytes.byteLength} >>\nstream\n`);
+      pushBytes(img.bytes);
+      push('\nendstream\nendobj\n');
+    });
+
+    const xobjects = this.images.map((_, k) => `/Im${k + 1} ${imageObj(k)} 0 R`).join(' ');
+    const resources = `<< /Font << /F1 3 0 R >>${imageCount ? ` /XObject << ${xobjects} >>` : ''} >>`;
+
     const box = `[0 0 ${this.L(this.w)} ${this.L(this.h)}]`;
     this.pages.forEach((ops, i) => {
       obj(pageObj(i),
         `<< /Type /Page /Parent 2 0 R /MediaBox ${box} /CropBox ${box} /TrimBox ${box} ` +
-        `/Resources << /Font << /F1 3 0 R >> >> /Contents ${contentObj(i)} 0 R >>`);
+        `/Resources ${resources} /Contents ${contentObj(i)} 0 R >>`);
       const stream = ops.join('\n');
       obj(contentObj(i), `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
     });

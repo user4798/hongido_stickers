@@ -16,6 +16,14 @@ const PRESETS = {
 
 const DEFAULT_PRESET = 'aone29602';
 
+// 사진 처리
+const PHOTO = {
+  dpi: 300,              // 인쇄 해상도 (칸 26×34mm → 약 307×402 픽셀)
+  jpegQuality: 0.92,     // 칸에 맞춘 사진을 저장할 때 압축 품질 (0~1)
+  sourceMaxPx: 1600,     // 원본 사진은 긴 쪽을 이 픽셀까지 줄여서 보관 (아이폰 메모리 절약)
+  sourceQuality: 0.9,
+};
+
 // 시험 인쇄 PDF에만 쓰는 값
 const TEST_SHEET = {
   lineWidth: 0.2,        // 칸 테두리 굵기

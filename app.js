@@ -1,170 +1,165 @@
-// app.js — 1단계: 시험 인쇄 PDF 만들기 + 보정값 저장
+// app.js — 2단계: 사진을 칸에 배치하고 인쇄 PDF 만들기
 
 const preset = PRESETS[DEFAULT_PRESET];
 const layout = layoutOf(preset);
 
-// ---------- 보정값 저장/불러오기 (localStorage: 이 기기 브라우저 안의 작은 저장 공간) ----------
+// 칸마다 { source, rotation, print: {blob, bytes, pxW, pxH}, previewUrl } 또는 null
+const cells = layout.cells.map(() => null);
 
-function loadCalibration() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(CALIBRATION.storageKey));
-    if (saved && typeof saved.x === 'number' && typeof saved.y === 'number') return saved;
-  } catch (e) { /* 저장 공간을 못 쓰는 경우(개인정보 보호 모드 등) 기본값 사용 */ }
-  return { x: 0, y: 0 };
+let busy = false;
+let targetCell = null;   // 칸 메뉴에서 고른 칸 번호 (0부터)
+
+const $ = (id) => document.getElementById(id);
+
+// ---------- 칸 채우기 ----------
+
+async function setCellPhoto(index, source, rotation) {
+  const cell = layout.cells[index];
+  const print = await renderForCell(source, rotation, cell);
+  clearCell(index);
+  cells[index] = { source, rotation, print, previewUrl: URL.createObjectURL(print.blob) };
 }
 
-function saveCalibration(cal) {
-  try {
-    localStorage.setItem(CALIBRATION.storageKey, JSON.stringify(cal));
-    return true;
-  } catch (e) {
-    return false;
+function clearCell(index) {
+  const c = cells[index];
+  if (c) URL.revokeObjectURL(c.previewUrl);
+  cells[index] = null;
+}
+
+async function addFiles(files, onlyIndex) {
+  if (busy || files.length === 0) return;
+  busy = true;
+  // 넣을 칸: 특정 칸(바꾸기) 또는 빈 칸들을 순서대로
+  const slots = onlyIndex != null
+    ? [onlyIndex]
+    : cells.map((c, i) => (c ? -1 : i)).filter((i) => i >= 0);
+  const list = Array.from(files).slice(0, slots.length);
+  let failed = 0;
+
+  for (let k = 0; k < list.length; k++) {
+    showStatus(`사진 넣는 중… ${k + 1} / ${list.length}`);
+    try {
+      const source = await loadSource(list[k]);
+      await setCellPhoto(slots[k], source, defaultRotation(source, layout.cells[slots[k]]));
+      render();
+    } catch (e) {
+      failed++;
+    }
   }
+
+  const skipped = files.length - list.length;
+  const notes = [];
+  if (skipped > 0) notes.push(`빈 칸이 ${slots.length}개라 ${skipped}장은 넣지 못했어요.`);
+  if (failed > 0) notes.push(`${failed}장은 열 수 없는 사진이었어요.`);
+  showStatus(notes.join(' '));
+  busy = false;
+  render();
 }
 
-function clamp(v) {
-  const rounded = Math.round(v / CALIBRATION.step) * CALIBRATION.step;
-  return Math.min(CALIBRATION.max, Math.max(CALIBRATION.min, Math.round(rounded * 10) / 10));
+async function rotateCell(index) {
+  const c = cells[index];
+  if (!c || busy) return;
+  busy = true;
+  await setCellPhoto(index, c.source, (c.rotation + 90) % 360);
+  busy = false;
+  render();
 }
 
-let cal = loadCalibration();
+// ---------- 인쇄 PDF ----------
 
-// ---------- 시험 인쇄 PDF ----------
-
-function signed(n) {
-  return (n >= 0 ? '+' : '') + n.toFixed(1);
-}
-
-function buildTestPdf(calibration) {
-  const T = TEST_SHEET;
-  const R = T.ruler;
-  const dx = calibration.x;
-  const dy = calibration.y;
+function buildPrintPdf() {
+  const cal = loadCalibration();
   const doc = new PdfDoc(preset.paper.w, preset.paper.h);
-
-  // 보정값만큼 모든 그림을 옮겨 그리는 도우미
-  const line = (x1, y1, x2, y2) => doc.line(x1 + dx, y1 + dy, x2 + dx, y2 + dy);
-  const rect = (x, y, w, h) => doc.rect(x + dx, y + dy, w, h);
-  const text = (x, y, s, align) => doc.text(x + dx, y + dy, s, T.fontSizePt, align);
-
-  // 1) 칸 테두리 (실선) + 칸 번호 + 가운데 십자
-  doc.gray(0);
-  doc.lineWidth(T.lineWidth);
-  layout.cells.forEach((c, i) => {
-    rect(c.x, c.y, c.w, c.h);
-    const cx = c.x + c.w / 2;
-    const cy = c.y + c.h / 2;
-    line(cx - T.crossSize, cy, cx + T.crossSize, cy);
-    line(cx, cy - T.crossSize, cx, cy + T.crossSize);
-    text(cx, cy + T.crossSize + 3, String(i + 1), 'center');
+  layout.cells.forEach((cell, i) => {
+    const c = cells[i];
+    if (!c) return;
+    doc.image(c.print.bytes, c.print.pxW, c.print.pxH, cell.x + cal.x, cell.y + cal.y, cell.w, cell.h);
   });
-
-  // 2) 제품 표기 스티커 크기 (점선, 칸 가운데라고 가정한 참고선)
-  doc.gray(0.5);
-  doc.lineWidth(T.thinLineWidth);
-  doc.dash(0.6, 0.6);
-  const sx = (preset.cell.w - preset.sticker.w) / 2;
-  const sy = (preset.cell.h - preset.sticker.h) / 2;
-  layout.cells.forEach((c) => rect(c.x + sx, c.y + sy, preset.sticker.w, preset.sticker.h));
-  doc.solid();
-  doc.gray(0);
-
-  // 3) 가로 눈금자 (아래 여백): 기준선 + 위쪽으로 눈금 + 10mm마다 숫자
-  doc.lineWidth(T.thinLineWidth);
-  line(R.hFrom, R.hY, R.hFrom + R.hLength, R.hY);
-  for (let i = 0; i <= R.hLength; i++) {
-    const len = i % 10 === 0 ? R.tick10 : i % 5 === 0 ? R.tick5 : R.tick1;
-    const x = R.hFrom + i;
-    line(x, R.hY, x, R.hY - len);
-    if (i % 10 === 0) text(x, R.hY + T.labelGap + 2, String(i), 'center');
-  }
-
-  // 4) 세로 눈금자 (왼쪽 여백): 첫 칸 위쪽과 같은 높이에서 시작, 오른쪽으로 눈금
-  const vTop = preset.margin.top;
-  line(R.vX, vTop, R.vX, vTop + R.vLength);
-  for (let i = 0; i <= R.vLength; i++) {
-    const len = i % 10 === 0 ? R.tick10 : i % 5 === 0 ? R.tick5 : R.tick1;
-    const y = vTop + i;
-    line(R.vX, y, R.vX + len, y);
-  }
-
-  // 5) 안내 글자 (영문)
-  const m = preset.margin;
-  text(R.hFrom, T.infoY[0],
-    `A-one 29602 TEST   X ${signed(dx)} / Y ${signed(dy)} mm   PRINT 100%`);
-  text(R.hFrom, T.infoY[1],
-    `Expect: left ${m.left} mm, top ${m.top} mm, cell ${preset.cell.w}x${preset.cell.h}, ruler ${R.hLength} mm`);
-
   return doc.toBlob();
+}
+
+function printPdf() {
+  if (!cells.some(Boolean)) return;
+  const file = new File([buildPrintPdf()], 'stickit.pdf', { type: 'application/pdf' });
+  return sharePdf(file, '스티커 인쇄');
 }
 
 // ---------- 화면 ----------
 
-const $ = (id) => document.getElementById(id);
+function pct(v, total) {
+  return `${(v / total) * 100}%`;
+}
+
+function buildSheet() {
+  const sheet = $('sheet');
+  sheet.style.aspectRatio = `${preset.paper.w} / ${preset.paper.h}`;
+  layout.cells.forEach((cell, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'cell';
+    btn.style.left = pct(cell.x, preset.paper.w);
+    btn.style.top = pct(cell.y, preset.paper.h);
+    btn.style.width = pct(cell.w, preset.paper.w);
+    btn.style.height = pct(cell.h, preset.paper.h);
+    btn.addEventListener('click', () => onCellTap(i));
+    sheet.appendChild(btn);
+  });
+}
 
 function render() {
-  $('calX').textContent = signed(cal.x) + ' mm';
-  $('calY').textContent = signed(cal.y) + ' mm';
+  const buttons = $('sheet').querySelectorAll('.cell');
+  buttons.forEach((btn, i) => {
+    const c = cells[i];
+    btn.classList.toggle('filled', !!c);
+    btn.style.backgroundImage = c ? `url("${c.previewUrl}")` : '';
+    btn.setAttribute('aria-label', c ? `${i + 1}번 칸 사진` : `${i + 1}번 칸 비어 있음`);
+    btn.textContent = c ? '' : '+';
+  });
+  const count = cells.filter(Boolean).length;
+  $('printBtn').disabled = count === 0 || busy;
+  $('pickBtn').disabled = busy || count === cells.length;
+  $('pickBtn').textContent = count === 0 ? '사진 고르기' : count === cells.length ? '9칸이 다 찼어요' : '사진 더 넣기';
+  $('countNote').textContent = `${count} / ${cells.length}칸`;
 }
 
-function setCal(next) {
-  cal = { x: clamp(next.x), y: clamp(next.y) };
-  const ok = saveCalibration(cal);
-  $('saveNote').textContent = ok ? '보정값이 이 기기에 저장됐어요.' : '이 브라우저에서는 저장이 안 돼요. (개인정보 보호 모드인지 확인)';
-  render();
+function showStatus(text) {
+  $('status').textContent = text;
 }
 
-function makePdfFile() {
-  const blob = buildTestPdf(cal);
-  return new File([blob], 'stickit-test.pdf', { type: 'application/pdf' });
-}
-
-function openPdf(file) {
-  const url = URL.createObjectURL(file);
-  const win = window.open(url, '_blank');
-  if (!win) location.href = url; // 새 창이 막히면 현재 창에서 열기
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
-}
-
-async function printPdf() {
-  const file = makePdfFile();
-  // 공유 시트(아이폰의 '공유' 화면)를 쓸 수 있으면 거기서 '프린트'나 캐논 앱을 고른다.
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try {
-      await navigator.share({ files: [file], title: '시험 인쇄' });
-      return;
-    } catch (e) {
-      if (e.name === 'AbortError') return; // 사용자가 닫음
-    }
+function onCellTap(i) {
+  if (busy) return;
+  targetCell = i;
+  showStatus('');
+  if (!cells[i]) {
+    $('oneInput').click();   // 빈 칸: 바로 사진 고르기
+    return;
   }
-  openPdf(file);
+  $('menuTitle').textContent = `${i + 1}번 칸`;
+  $('menu').hidden = false;
 }
 
-function applyMeasured() {
-  const mx = parseFloat($('measX').value);
-  const my = parseFloat($('measY').value);
-  const next = { ...cal };
-  // 실제로 잰 값이 기대값보다 크면 그만큼 반대로(왼쪽/위로) 옮긴다.
-  if (!Number.isNaN(mx)) next.x = cal.x - (mx - preset.margin.left);
-  if (!Number.isNaN(my)) next.y = cal.y - (my - preset.margin.top);
-  setCal(next);
-  $('measX').value = '';
-  $('measY').value = '';
+function closeMenu() {
+  $('menu').hidden = true;
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  $('expectX').textContent = preset.margin.left;
-  $('expectY').textContent = preset.margin.top;
-  $('presetName').textContent = preset.name;
+  buildSheet();
+  render();
+
+  $('pickBtn').addEventListener('click', () => $('manyInput').click());
+  $('manyInput').addEventListener('change', (e) => {
+    addFiles(e.target.files, null);
+    e.target.value = '';   // 같은 사진을 다시 골라도 동작하게
+  });
+  $('oneInput').addEventListener('change', (e) => {
+    addFiles(e.target.files, targetCell);
+    e.target.value = '';
+  });
 
   $('printBtn').addEventListener('click', printPdf);
-  $('previewBtn').addEventListener('click', () => openPdf(makePdfFile()));
-  $('xMinus').addEventListener('click', () => setCal({ x: cal.x - CALIBRATION.step, y: cal.y }));
-  $('xPlus').addEventListener('click', () => setCal({ x: cal.x + CALIBRATION.step, y: cal.y }));
-  $('yMinus').addEventListener('click', () => setCal({ x: cal.x, y: cal.y - CALIBRATION.step }));
-  $('yPlus').addEventListener('click', () => setCal({ x: cal.x, y: cal.y + CALIBRATION.step }));
-  $('resetBtn').addEventListener('click', () => setCal({ x: 0, y: 0 }));
-  $('applyBtn').addEventListener('click', applyMeasured);
 
-  render();
+  $('menuReplace').addEventListener('click', () => { closeMenu(); $('oneInput').click(); });
+  $('menuRotate').addEventListener('click', () => { closeMenu(); rotateCell(targetCell); });
+  $('menuClear').addEventListener('click', () => { closeMenu(); clearCell(targetCell); render(); });
+  $('menuClose').addEventListener('click', closeMenu);
+  $('menu').addEventListener('click', (e) => { if (e.target.id === 'menu') closeMenu(); });
 });

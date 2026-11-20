@@ -151,6 +151,91 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
+/* ---------- 사진 배치 화면 ---------- */
+
+.titlebar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.titlebar .sub { margin: 0; }
+
+.sheet {
+  position: relative;
+  width: min(100%, 52vh);      /* 버튼까지 한 화면에 보이도록 높이 제한 */
+  margin: 0 auto;
+  background: #fff;            /* 실제 용지는 흰색이라 다크 모드에서도 흰색 */
+  border-radius: 6px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+}
+
+.cell {
+  position: absolute;
+  padding: 0;
+  border: 2px dashed #d8c8c0;
+  border-radius: 4px;
+  background: #fbf6f3 center / cover no-repeat;
+  color: #c9b3a9;
+  font-size: 32px;
+  font-weight: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cell.filled { border: none; border-radius: 0; }
+.cell:active { opacity: 0.7; }
+
+.status {
+  min-height: 1.5em;
+  text-align: center;
+  color: var(--muted);
+  font-size: 16px;
+  margin: 10px 0;
+}
+
+.big + .big { margin-top: 12px; }
+.big:disabled { opacity: 0.4; }
+.big.danger { border-color: #c94a3a; color: #c94a3a; }
+
+.tip {
+  text-align: center;
+  color: var(--muted);
+  font-size: 15px;
+  margin: 14px 0 0;
+}
+
+a.link { text-align: center; }
+
+.back {
+  display: inline-block;
+  color: var(--muted);
+  text-decoration: none;
+  padding: 6px 0;
+  font-size: 16px;
+}
+
+.menu {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 10;
+}
+.menu[hidden] { display: none; }
+
+.menu-panel {
+  width: 100%;
+  max-width: 480px;
+  background: var(--card);
+  border-radius: 20px 20px 0 0;
+  padding: 20px 16px max(16px, env(safe-area-inset-bottom));
+}
+.menu-panel h2 { text-align: center; }
+
 details summary { font-weight: 700; cursor: pointer; }
 details ul { padding-left: 20px; margin: 12px 0 0; font-size: 16px; }
 details li { margin-bottom: 6px; }
