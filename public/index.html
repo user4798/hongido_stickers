@@ -29,7 +29,7 @@
     </header>
 
     <div class="chips">
-      <span class="chip"><span data-icon="paper"></span><span id="paperChip"></span></span>
+      <button class="chip chip-btn" id="paperChip" aria-label="용지 판형 바꾸기"><span data-icon="paper"></span><span id="paperChipText"></span><span class="chev" data-icon="chevron"></span></button>
       <span class="chip count" id="countChip"></span>
     </div>
 
@@ -82,6 +82,16 @@
     </div>
   </div>
 
+  <!-- 판형 고르기 -->
+  <div id="presetMenu" class="overlay" hidden>
+    <div class="panel" role="dialog" aria-labelledby="presetTitle">
+      <div class="grabber"></div>
+      <h2 id="presetTitle">용지 고르기</h2>
+      <p class="panel-sub">가지고 있는 용지에 맞춰 칸이 바뀌어요</p>
+      <div id="presetList" class="preset-list"></div>
+    </div>
+  </div>
+
   <!-- 인쇄 전 확인 -->
   <div id="preflight" class="overlay" hidden>
     <div class="panel" role="dialog" aria-labelledby="preflightTitle">
@@ -92,7 +102,7 @@
         <div class="row"><span data-icon="paper"></span><span class="row-label">용지 크기</span><b id="pfPaper"></b></div>
         <div class="row"><span data-icon="scale"></span><span class="row-label">배율</span><b id="pfScale"></b></div>
       </div>
-      <p class="panel-note">'용지에 맞춤'이 켜져 있으면 칸이 어긋나요.</p>
+      <p class="panel-note" id="pfNote"></p>
       <button id="preflightGo" class="accent-btn">확인하고 인쇄</button>
       <label class="check"><input id="skipPreflight" type="checkbox"><span>다음부터 바로 인쇄</span></label>
     </div>

@@ -1,6 +1,7 @@
 // test.js — 시험 인쇄 PDF 만들기 + 보정값 조정 (1단계)
 
-const preset = PRESETS[DEFAULT_PRESET];
+// 지금 고른 판형 (보정값도 판형마다 따로 저장된다)
+const preset = PRESETS[getPresetId()];
 const layout = layoutOf(preset);
 const clamp = clampCalibration;
 const signed = signedMm;
@@ -113,6 +114,14 @@ document.addEventListener('DOMContentLoaded', () => {
   $('expectX').textContent = preset.margin.left;
   $('expectY').textContent = preset.margin.top;
   $('presetName').textContent = preset.name;
+
+  // 위치 맞추기가 필요 없는 용지(예: 4×6 한 장)는 시험 인쇄 부분을 숨긴다
+  if (!preset.testSheet) {
+    $('calibSection').hidden = true;
+    $('calibNone').hidden = false;
+    document.querySelector('details.card').hidden = true;
+    $('calibNone').textContent = `${preset.menuTitle}는 한 장에 사진 한 장이라 위치 맞추기가 필요 없어요. 스티커 용지로 바꾸면 여기서 위치를 맞출 수 있어요.`;
+  }
 
   $('printBtn').addEventListener('click', printPdf);
   $('previewBtn').addEventListener('click', () => openPdf(makePdfFile()));

@@ -1,9 +1,15 @@
 // calibration.js — 프린터 보정값 저장/불러오기 (시험 인쇄 화면과 사진 화면이 함께 씀)
 // localStorage: 이 기기 브라우저 안에 작은 값을 기억해 두는 저장 공간
 
+// 보정값은 판형마다 따로 저장 (첫 판형은 예전 이름 그대로 써서 기존 값을 잇는다)
+function calibrationKey() {
+  const id = getPresetId();
+  return id === 'aone29602' ? CALIBRATION.storageKey : `${CALIBRATION.storageKey}.${id}`;
+}
+
 function loadCalibration() {
   try {
-    const saved = JSON.parse(localStorage.getItem(CALIBRATION.storageKey));
+    const saved = JSON.parse(localStorage.getItem(calibrationKey()));
     if (saved && typeof saved.x === 'number' && typeof saved.y === 'number') return saved;
   } catch (e) { /* 저장 공간을 못 쓰는 경우(개인정보 보호 모드 등) 기본값 사용 */ }
   return { x: 0, y: 0 };
@@ -11,7 +17,7 @@ function loadCalibration() {
 
 function saveCalibration(cal) {
   try {
-    localStorage.setItem(CALIBRATION.storageKey, JSON.stringify(cal));
+    localStorage.setItem(calibrationKey(), JSON.stringify(cal));
     return true;
   } catch (e) {
     return false;

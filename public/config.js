@@ -5,8 +5,13 @@ const PRESETS = {
   aone29602: {
     name: '에이원 29602 (엽서 3×3)',
     label: 'Aone29602',                 // 화면 칩·PDF 파일 이름에 쓰는 짧은 용지 이름
+    chip: 'Aone29602 · 엽서',           // 첫 화면 용지 칩에 보이는 글자
+    menuTitle: 'Aone29602 스티커',      // 판형 고르기 목록의 제목
+    menuSub: '엽서 · 3×3 = 9칸',        // 판형 고르기 목록의 설명
+    paperKind: '스티커 용지',           // 인쇄 전 확인 화면에 쓰는 말
     printPaper: '엽서',                 // 아이폰 인쇄 화면에서 고를 용지 크기
     printScale: '100%',                 // 아이폰 인쇄 화면의 배율
+    testSheet: true,                    // 시험 인쇄로 위치 맞추기를 쓰는 용지
     paper: { w: 100, h: 148 },          // 용지 크기
     margin: { top: 18.7, left: 7 },     // 첫 칸까지의 거리 (오른쪽·아래 마진은 계산으로 나옴)
                                         // top 18.7: 칼선 실측(위 20 ~ 아래 51.4mm)의 가운데에 칸을 맞춘 값
@@ -15,9 +20,44 @@ const PRESETS = {
     gap: { x: 4, y: 4 },                // 칸 사이 간격
     sticker: { w: 24, h: 32 },          // 제품에 적힌 스티커 크기 (참고용, 칸 가운데에 있다고 가정)
   },
+
+  // 일반 4×6인치(10×15cm) 광택 인화지, 한 장에 사진 한 장을 꽉 채움.
+  // 칸 = 용지 전체. 아이폰 인쇄 화면에서 '테두리 없음'을 켜면 가장자리까지 꽉 차고,
+  // 끄면 프린터가 못 찍는 가장자리 몇 mm만 하얗게 남는다.
+  photo4x6: {
+    name: '4×6 광택 인화지 (1장)',
+    label: 'Photo4x6',
+    chip: '4×6 인화지',
+    menuTitle: '4×6 광택 인화지',
+    menuSub: '10×15cm · 사진 1장 크게',
+    paperKind: '광택 인화지',
+    printPaper: '4×6 (10×15cm)',
+    printScale: '100%',
+    printNote: "'테두리 없음'을 켜면 가장자리까지 꽉 차요.",
+    testSheet: false,
+    paper: { w: 101.6, h: 152.4 },
+    margin: { top: 0, left: 0 },
+    grid: { cols: 1, rows: 1 },
+    cell: { w: 101.6, h: 152.4 },
+    gap: { x: 0, y: 0 },
+  },
 };
 
+const PRESET_ORDER = ['aone29602', 'photo4x6'];   // 판형 고르기 목록 순서
 const DEFAULT_PRESET = 'aone29602';
+const PRESET_KEY = 'stickit.preset.v1';           // 마지막으로 고른 판형을 기억하는 이름
+
+function getPresetId() {
+  try {
+    const id = localStorage.getItem(PRESET_KEY);
+    if (id && PRESETS[id]) return id;
+  } catch (e) { /* 저장 공간을 못 쓰면 기본값 */ }
+  return DEFAULT_PRESET;
+}
+
+function setPresetId(id) {
+  try { localStorage.setItem(PRESET_KEY, id); } catch (e) { /* 저장 못 해도 이번에는 바뀜 */ }
+}
 
 // 화면 설정
 const UI = {

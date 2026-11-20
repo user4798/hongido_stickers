@@ -74,16 +74,18 @@ const Editor = (() => {
     }
     ctx.stroke();
 
-    // 칼선(제품 스티커 크기) 점선
+    // 칼선(제품 스티커 크기) 점선 — 칼선이 있는 용지에서만
     const s = opts.sticker;
-    const sw = (s.w / opts.cell.w) * w;
-    const sh = (s.h / opts.cell.h) * h;
-    ctx.setLineDash([4, 4]);
-    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
-    ctx.lineWidth = 1;
-    roundRect(x + (w - sw) / 2, y + (h - sh) / 2, sw, sh, 6);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    if (s) {
+      const sw = (s.w / opts.cell.w) * w;
+      const sh = (s.h / opts.cell.h) * h;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+      ctx.lineWidth = 1;
+      roundRect(x + (w - sw) / 2, y + (h - sh) / 2, sw, sh, 6);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
     ctx.restore();
 
     // 프레임 테두리

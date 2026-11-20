@@ -1,12 +1,14 @@
 // app.js — 사진을 칸에 배치하고 인쇄 PDF 만들기
 
-const preset = PRESETS[DEFAULT_PRESET];
-const layout = layoutOf(preset);
+// 지금 쓰는 판형 (용지 칩을 눌러 바꿀 수 있음)
+let presetId = getPresetId();
+let preset = PRESETS[presetId];
+let layout = layoutOf(preset);
 
 // 칸마다 { source, edit, look, print: {blob, bytes, pxW, pxH}, previewUrl } 또는 null
 // edit = 사진 위치·배율·각도 (photo.js 참고), look = 필터 { id, amount } (filters.js 참고)
 const NO_LOOK = { id: 'none', amount: 1 };
-const cells = layout.cells.map(() => null);
+let cells = layout.cells.map(() => null);
 
 let busy = false;
 let targetCell = null;   // 마지막으로 누른 칸 번호 (0부터)
@@ -90,7 +92,7 @@ function openEditor(index) {
     edit: c.edit,
     look: c.look,
     cell: layout.cells[index],
-    sticker: preset.sticker,
+    sticker: preset.sticker || null,
     filledCount: cells.filter(Boolean).length,
     onDone: (edit, look, applyAll) => applyEdit(index, edit, look, applyAll),
     onReplace: () => { targetCell = index; $('oneInput').click(); },
@@ -112,7 +114,7 @@ function buildPrintPdf() {
 }
 
 function printFileName() {
-  return `${preset.label}_${preset.printPaper}_${preset.printScale}.pdf`;
+  return `${preset.label}_${preset.printPaper.split(" ")[0]}_${preset.printScale}.pdf`;
 }
 
 function sendToPrint() {
@@ -161,6 +163,7 @@ function fitPaper() {
 
 function buildPaper() {
   const paper = $('paper');
+  paper.querySelectorAll('.cell').forEach((b) => b.remove());
   paper.style.aspectRatio = `${preset.paper.w} / ${preset.paper.h}`;
   layout.cells.forEach((cell, i) => {
     const btn = document.createElement('button');
@@ -196,6 +199,100 @@ function toast(text) {
   toastTimer = setTimeout(() => el.classList.remove('show'), UI.toastMs);
 }
 
+// ---------- 판형 바꾸기 ----------
+
+function applyPresetLabels() {
+  $('paperChipText').textContent = preset.chip;
+  $('preflightPaper').textContent = `${preset.label} ${preset.paperKind}`;
+  $('pfPaper').textContent = preset.printPaper;
+  $('pfScale').textContent = preset.printScale;
+  $('pfNote').textContent = preset.printNote ? `${preset.printNote} '용지에 맞춤'은 꺼 주세요.` : "'용지에 맞춤'이 켜져 있으면 칸이 어긋나요.";
+}
+
+function buildPresetMenu() {
+  const list = $('presetList');
+  list.innerHTML = '';
+  PRESET_ORDER.forEach((id) => {
+    const p = PRESETS[id];
+    const btn = document.createElement('button');
+    btn.className = 'preset-row';
+    btn.dataset.id = id;
+    // 작은 판형 그림: 용지 비율과 칸 배치를 그대로 줄여서
+    const mini = document.createElement('span');
+    mini.className = 'preset-mini';
+    mini.style.aspectRatio = `${p.paper.w} / ${p.paper.h}`;
+    layoutOf(p).cells.forEach((c) => {
+      const cell = document.createElement('i');
+      cell.style.left = pct(c.x, p.paper.w);
+      cell.style.top = pct(c.y, p.paper.h);
+      cell.style.width = pct(c.w, p.paper.w);
+      cell.style.height = pct(c.h, p.paper.h);
+      mini.appendChild(cell);
+    });
+    const text = document.createElement('span');
+    text.className = 'preset-text';
+    text.innerHTML = `<b></b><small></small>`;
+    text.querySelector('b').textContent = p.menuTitle;
+    text.querySelector('small').textContent = p.menuSub;
+    const check = document.createElement('span');
+    check.className = 'preset-check';
+    check.innerHTML = iconSvg('check');
+    btn.append(mini, text, check);
+    btn.addEventListener('click', () => switchPreset(id));
+    list.appendChild(btn);
+  });
+  syncPresetMenu();
+}
+
+function syncPresetMenu() {
+  document.querySelectorAll('.preset-row').forEach((b) => b.classList.toggle('on', b.dataset.id === presetId));
+}
+
+// 판형을 바꾸면 사진은 순서대로 새 칸에 다시 넣는다 (칸이 모자라면 확인 후 뒤쪽 사진을 뺀다)
+async function switchPreset(id) {
+  if (busy || id === presetId) { closeSheet('presetMenu'); return; }
+  const next = PRESETS[id];
+  const nextLayout = layoutOf(next);
+  const kept = cells.filter(Boolean);
+  const room = nextLayout.cells.length;
+  if (kept.length > room) {
+    const ok = confirm(`${next.menuTitle}에는 사진이 ${room}장 들어가요.
+앞의 ${room}장만 남기고 나머지 ${kept.length - room}장은 빼도 될까요?`);
+    if (!ok) return;
+  }
+  closeSheet('presetMenu');
+  cells.forEach((c, i) => clearCellQuiet(c));
+  presetId = id;
+  preset = next;
+  layout = nextLayout;
+  cells = layout.cells.map(() => null);
+  setPresetId(id);
+  applyPresetLabels();
+  syncPresetMenu();
+  buildPaper();
+  fitPaper();
+  render();
+  // 남길 사진을 새 칸 크기에 맞춰 다시 만든다 (필터는 그대로)
+  const move = kept.slice(0, room);
+  if (move.length) {
+    busy = true;
+    move.forEach((_, i) => cellButton(i).classList.add('loading'));
+    for (let i = 0; i < move.length; i++) {
+      const src = move[i].source;
+      await setCellPhoto(i, src, defaultEdit(src, layout.cells[i]), move[i].look);
+      cellButton(i).classList.remove('loading');
+      render();
+    }
+    busy = false;
+    render();
+  }
+  toast(`${next.menuTitle}로 바꿨어요`);
+}
+
+function clearCellQuiet(c) {
+  if (c) URL.revokeObjectURL(c.previewUrl);
+}
+
 function openSheet(id) {
   $(id).hidden = false;
 }
@@ -216,10 +313,10 @@ function onCellTap(i) {
 
 document.addEventListener('DOMContentLoaded', () => {
   $('appTitle').textContent = UI.appTitle;
-  $('paperChip').textContent = `${preset.label} · ${preset.printPaper}`;
-  $('preflightPaper').textContent = `${preset.label} 스티커 용지`;
-  $('pfPaper').textContent = preset.printPaper;
-  $('pfScale').textContent = preset.printScale;
+  applyPresetLabels();
+  buildPresetMenu();
+  $('paperChip').addEventListener('click', () => openSheet('presetMenu'));
+  $('presetMenu').addEventListener('click', (e) => { if (e.target.id === 'presetMenu') closeSheet('presetMenu'); });
 
   buildPaper();
   fitPaper();

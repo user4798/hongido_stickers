@@ -257,6 +257,44 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 }
 .check input { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; }
 
+/* ---------- 판형 바꾸기 ---------- */
+
+.chip-btn { cursor: pointer; }
+.chip-btn:active { background: var(--raised); }
+.chip .chev { width: 12px; height: 12px; margin-left: -2px; color: var(--text-2); }
+
+.preset-list { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+
+.preset-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--raised);
+  text-align: left;
+  border: 1.5px solid transparent;
+  --icon-cut: var(--raised);
+}
+.preset-row.on { border-color: var(--accent); }
+.preset-row:active { background: #2c2c30; }
+
+.preset-mini {
+  position: relative;
+  flex: none;
+  width: 34px;
+  background: var(--paper);
+  border-radius: 3px;
+}
+.preset-mini i { position: absolute; background: var(--accent); border-radius: 1px; opacity: 0.85; }
+
+.preset-text { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.preset-text b { font-size: 16px; font-weight: 600; }
+.preset-text small { font-size: 13px; color: var(--text-2); }
+
+.preset-check { width: 24px; height: 24px; color: var(--accent); opacity: 0; }
+.preset-row.on .preset-check { opacity: 1; }
+
 /* ---------- 사진 편집 화면 ---------- */
 
 body.editing { overflow: hidden; }
