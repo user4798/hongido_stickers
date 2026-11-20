@@ -13,6 +13,7 @@
 //   high     밝은 부분에 섞을 색 [r, g, b]
 //   grain    필름 입자 (인쇄용 사진에만)
 //   vignette 가장자리 어둡게 (인쇄용 사진에만)
+//   posterize 색을 몇 단계로 끊기 (팝아트)
 
 const FILTERS = [
   { id: 'none', name: '원본' },
@@ -35,6 +36,9 @@ const FILTERS = [
   { id: 'Dog1', name: 'Dog1', gamma: 0.97, contrast: 0.95, sat: 0.85, vib: -0.55, temp: 0.05, tint: 0.03,
     fade: 0.05, matte: 0.02, shadow: [0.01, 0.005, 0], high: [0.025, 0.012, 0.01],
     grain: 0.03, vignette: 0.08 },
+
+  // Pop — 색을 몇 단계로 뚝뚝 끊은 팝아트. 면이 단순하고 또렷해서 아주 작은 스티커에서도 눈에 띈다.
+  { id: 'Pop', name: 'Pop', gamma: 0.95, contrast: 1.22, sat: 1.6, posterize: 4 },
 ];
 
 // 작은 잉크젯 스티커용 인쇄 보정: 중간 밝기·그림자 들어 올림, 채도 조금 ↑, 윤곽 또렷하게
@@ -239,12 +243,18 @@ function applyLook(ctx, w, h, look, printFix, mode) {
   const maxR = Math.hypot(cx, cy);
   const lut = colorTable(useFilter ? f : null, amount, printFix);
   const out = [0, 0, 0];
+  // 색 단계 나누기: 보정표는 경계를 부드럽게 섞으므로, 단계는 표를 거친 뒤 따로 끊는다
+  const steps = useFilter && f.posterize ? f.posterize - 1 : 0;
 
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = (y * w + x) * 4;
       lookup(lut, d[i], d[i + 1], d[i + 2], out);
       let r = out[0], g = out[1], b = out[2];
+      if (steps) {
+        const pr = Math.round(r * steps) / steps, pg = Math.round(g * steps) / steps, pb = Math.round(b * steps) / steps;
+        r += (pr - r) * amount; g += (pg - g) * amount; b += (pb - b) * amount;
+      }
       if (vig) {
         const t = Math.hypot(x - cx, y - cy) / maxR;
         const k = 1 - vig * t * t;
