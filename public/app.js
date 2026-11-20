@@ -1,4 +1,4 @@
-// app.js — 2단계: 사진을 칸에 배치하고 인쇄 PDF 만들기
+// app.js — 사진을 칸에 배치하고 인쇄 PDF 만들기
 
 const preset = PRESETS[DEFAULT_PRESET];
 const layout = layoutOf(preset);
@@ -7,15 +7,14 @@ const layout = layoutOf(preset);
 const cells = layout.cells.map(() => null);
 
 let busy = false;
-let targetCell = null;   // 칸 메뉴에서 고른 칸 번호 (0부터)
+let targetCell = null;   // 마지막으로 누른 칸 번호 (0부터)
 
 const $ = (id) => document.getElementById(id);
 
 // ---------- 칸 채우기 ----------
 
 async function setCellPhoto(index, source, rotation) {
-  const cell = layout.cells[index];
-  const print = await renderForCell(source, rotation, cell);
+  const print = await renderForCell(source, rotation, layout.cells[index]);
   clearCell(index);
   cells[index] = { source, rotation, print, previewUrl: URL.createObjectURL(print.blob) };
 }
@@ -26,32 +25,38 @@ function clearCell(index) {
   cells[index] = null;
 }
 
-async function addFiles(files, onlyIndex) {
+// 누른 칸부터 끝까지, 그다음 앞쪽의 빈 칸 순서
+function emptySlotsFrom(start) {
+  const n = cells.length;
+  const order = [];
+  for (let k = 0; k < n; k++) order.push((start + k) % n);
+  return order.filter((i) => !cells[i]);
+}
+
+async function addFiles(files, slots) {
   if (busy || files.length === 0) return;
   busy = true;
-  // 넣을 칸: 특정 칸(바꾸기) 또는 빈 칸들을 순서대로
-  const slots = onlyIndex != null
-    ? [onlyIndex]
-    : cells.map((c, i) => (c ? -1 : i)).filter((i) => i >= 0);
   const list = Array.from(files).slice(0, slots.length);
+  slots.slice(0, list.length).forEach((i) => cellButton(i).classList.add('loading'));
+  render();
   let failed = 0;
 
   for (let k = 0; k < list.length; k++) {
-    showStatus(`사진 넣는 중… ${k + 1} / ${list.length}`);
     try {
       const source = await loadSource(list[k]);
       await setCellPhoto(slots[k], source, defaultRotation(source, layout.cells[slots[k]]));
-      render();
     } catch (e) {
       failed++;
     }
+    cellButton(slots[k]).classList.remove('loading');
+    render();
   }
 
   const skipped = files.length - list.length;
   const notes = [];
-  if (skipped > 0) notes.push(`빈 칸이 ${slots.length}개라 ${skipped}장은 넣지 못했어요.`);
-  if (failed > 0) notes.push(`${failed}장은 열 수 없는 사진이었어요.`);
-  showStatus(notes.join(' '));
+  if (skipped > 0) notes.push(`빈 칸이 ${slots.length}개라 ${skipped}장은 넣지 못했어요`);
+  if (failed > 0) notes.push(`${failed}장은 열 수 없는 사진이었어요`);
+  if (notes.length) toast(notes.join(' · '));
   busy = false;
   render();
 }
@@ -60,12 +65,14 @@ async function rotateCell(index) {
   const c = cells[index];
   if (!c || busy) return;
   busy = true;
+  cellButton(index).classList.add('loading');
   await setCellPhoto(index, c.source, (c.rotation + 90) % 360);
+  cellButton(index).classList.remove('loading');
   busy = false;
   render();
 }
 
-// ---------- 인쇄 PDF ----------
+// ---------- 인쇄 ----------
 
 function buildPrintPdf() {
   const cal = loadCalibration();
@@ -78,10 +85,35 @@ function buildPrintPdf() {
   return doc.toBlob();
 }
 
-function printPdf() {
-  if (!cells.some(Boolean)) return;
-  const file = new File([buildPrintPdf()], 'stickit.pdf', { type: 'application/pdf' });
-  return sharePdf(file, '스티커 인쇄');
+function printFileName() {
+  return `${preset.label}_${preset.printPaper}_${preset.printScale}.pdf`;
+}
+
+function sendToPrint() {
+  const file = new File([buildPrintPdf()], printFileName(), { type: 'application/pdf' });
+  return sharePdf(file, UI.appTitle);
+}
+
+function skipPreflight() {
+  try { return localStorage.getItem(UI.skipPreflightKey) === '1'; } catch (e) { return false; }
+}
+
+function setSkipPreflight(on) {
+  try { localStorage.setItem(UI.skipPreflightKey, on ? '1' : '0'); } catch (e) { /* 저장 못 해도 동작은 계속 */ }
+}
+
+function onPrint() {
+  if (busy) return;
+  if (!cells.some(Boolean)) {
+    toast('먼저 칸을 눌러 사진을 넣어 주세요');
+    return;
+  }
+  if (skipPreflight()) {
+    sendToPrint();
+    return;
+  }
+  $('skipPreflight').checked = false;
+  openSheet('preflight');
 }
 
 // ---------- 화면 ----------
@@ -90,9 +122,13 @@ function pct(v, total) {
   return `${(v / total) * 100}%`;
 }
 
-function buildSheet() {
-  const sheet = $('sheet');
-  sheet.style.aspectRatio = `${preset.paper.w} / ${preset.paper.h}`;
+function cellButton(i) {
+  return $('paper').children[i];
+}
+
+function buildPaper() {
+  const paper = $('paper');
+  paper.style.aspectRatio = `${preset.paper.w} / ${preset.paper.h}`;
   layout.cells.forEach((cell, i) => {
     const btn = document.createElement('button');
     btn.className = 'cell';
@@ -100,66 +136,87 @@ function buildSheet() {
     btn.style.top = pct(cell.y, preset.paper.h);
     btn.style.width = pct(cell.w, preset.paper.w);
     btn.style.height = pct(cell.h, preset.paper.h);
+    btn.innerHTML = iconSvg('plus');
     btn.addEventListener('click', () => onCellTap(i));
-    sheet.appendChild(btn);
+    paper.appendChild(btn);
   });
 }
 
 function render() {
-  const buttons = $('sheet').querySelectorAll('.cell');
-  buttons.forEach((btn, i) => {
-    const c = cells[i];
+  cells.forEach((c, i) => {
+    const btn = cellButton(i);
     btn.classList.toggle('filled', !!c);
     btn.style.backgroundImage = c ? `url("${c.previewUrl}")` : '';
-    btn.setAttribute('aria-label', c ? `${i + 1}번 칸 사진` : `${i + 1}번 칸 비어 있음`);
-    btn.textContent = c ? '' : '+';
+    btn.setAttribute('aria-label', c ? `${i + 1}번 칸 사진` : `${i + 1}번 칸 비어 있음, 사진 고르기`);
   });
   const count = cells.filter(Boolean).length;
-  $('printBtn').disabled = count === 0 || busy;
-  $('pickBtn').disabled = busy || count === cells.length;
-  $('pickBtn').textContent = count === 0 ? '사진 고르기' : count === cells.length ? '9칸이 다 찼어요' : '사진 더 넣기';
-  $('countNote').textContent = `${count} / ${cells.length}칸`;
+  $('countChip').textContent = `${count} / ${cells.length}`;
+  $('emptyHint').classList.toggle('show', count === 0 && !busy);
 }
 
-function showStatus(text) {
-  $('status').textContent = text;
+let toastTimer = null;
+function toast(text) {
+  const el = $('toast');
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), UI.toastMs);
+}
+
+function openSheet(id) {
+  document.querySelectorAll('.cell.selected').forEach((b) => b.classList.remove('selected'));
+  if (id === 'cellMenu') cellButton(targetCell).classList.add('selected');
+  $(id).hidden = false;
+}
+
+function closeSheet(id) {
+  $(id).hidden = true;
+  document.querySelectorAll('.cell.selected').forEach((b) => b.classList.remove('selected'));
 }
 
 function onCellTap(i) {
   if (busy) return;
   targetCell = i;
-  showStatus('');
   if (!cells[i]) {
-    $('oneInput').click();   // 빈 칸: 바로 사진 고르기
+    $('manyInput').click();   // 빈 칸: 여러 장 고르기 → 이 칸부터 채움
     return;
   }
-  $('menuTitle').textContent = `${i + 1}번 칸`;
-  $('menu').hidden = false;
-}
-
-function closeMenu() {
-  $('menu').hidden = true;
+  $('cellMenuTitle').textContent = `${i + 1}번 칸`;
+  openSheet('cellMenu');
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  buildSheet();
+  $('appTitle').textContent = UI.appTitle;
+  $('paperChip').textContent = `${preset.label} · ${preset.printPaper}`;
+  $('preflightPaper').textContent = `${preset.label} 스티커 용지`;
+  $('pfPaper').textContent = preset.printPaper;
+  $('pfScale').textContent = preset.printScale;
+
+  buildPaper();
   render();
 
-  $('pickBtn').addEventListener('click', () => $('manyInput').click());
   $('manyInput').addEventListener('change', (e) => {
-    addFiles(e.target.files, null);
+    addFiles(e.target.files, emptySlotsFrom(targetCell ?? 0));
     e.target.value = '';   // 같은 사진을 다시 골라도 동작하게
   });
   $('oneInput').addEventListener('change', (e) => {
-    addFiles(e.target.files, targetCell);
+    addFiles(e.target.files, [targetCell]);
     e.target.value = '';
   });
 
-  $('printBtn').addEventListener('click', printPdf);
+  $('printBtn').addEventListener('click', onPrint);
+  $('preflightGo').addEventListener('click', () => {
+    setSkipPreflight($('skipPreflight').checked);
+    closeSheet('preflight');
+    sendToPrint();
+  });
 
-  $('menuReplace').addEventListener('click', () => { closeMenu(); $('oneInput').click(); });
-  $('menuRotate').addEventListener('click', () => { closeMenu(); rotateCell(targetCell); });
-  $('menuClear').addEventListener('click', () => { closeMenu(); clearCell(targetCell); render(); });
-  $('menuClose').addEventListener('click', closeMenu);
-  $('menu').addEventListener('click', (e) => { if (e.target.id === 'menu') closeMenu(); });
+  $('menuReplace').addEventListener('click', () => { closeSheet('cellMenu'); $('oneInput').click(); });
+  $('menuRotate').addEventListener('click', () => { closeSheet('cellMenu'); rotateCell(targetCell); });
+  $('menuClear').addEventListener('click', () => { closeSheet('cellMenu'); clearCell(targetCell); render(); });
+
+  // 어두운 바깥을 누르면 닫기
+  ['cellMenu', 'preflight'].forEach((id) => {
+    $(id).addEventListener('click', (e) => { if (e.target.id === id) closeSheet(id); });
+  });
 });

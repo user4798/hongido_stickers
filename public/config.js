@@ -4,6 +4,9 @@
 const PRESETS = {
   aone29602: {
     name: '에이원 29602 (엽서 3×3)',
+    label: 'Aone29602',                 // 화면 칩·PDF 파일 이름에 쓰는 짧은 용지 이름
+    printPaper: '엽서',                 // 아이폰 인쇄 화면에서 고를 용지 크기
+    printScale: '100%',                 // 아이폰 인쇄 화면의 배율
     paper: { w: 100, h: 148 },          // 용지 크기
     margin: { top: 18.7, left: 7 },     // 첫 칸까지의 거리 (오른쪽·아래 마진은 계산으로 나옴)
                                         // top 18.7: 칼선 실측(위 20 ~ 아래 51.4mm)의 가운데에 칸을 맞춘 값
@@ -15,6 +18,13 @@ const PRESETS = {
 };
 
 const DEFAULT_PRESET = 'aone29602';
+
+// 화면 설정
+const UI = {
+  appTitle: 'Hongido_Stickers',
+  skipPreflightKey: 'stickit.skipPreflight.v1',   // '다음부터 바로 인쇄'를 기억하는 이름
+  toastMs: 2600,                                  // 짧은 안내가 떠 있는 시간
+};
 
 // 사진 처리
 const PHOTO = {

@@ -3,45 +3,76 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#fff7f2">
-  <title>스티커 인쇄</title>
+  <meta name="theme-color" content="#111113">
+  <meta name="color-scheme" content="dark">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Hongido">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <title>Hongido_Stickers</title>
   <link rel="stylesheet" href="style.css">
   <script src="config.js"></script>
+  <script src="icons.js"></script>
   <script src="pdfwriter.js"></script>
   <script src="calibration.js"></script>
   <script src="photo.js"></script>
   <script src="app.js"></script>
 </head>
-<body>
-  <main>
-    <div class="titlebar">
-      <h1>스티커 인쇄</h1>
-      <span class="sub" id="countNote"></span>
+<body class="app">
+  <main class="layout">
+    <header class="topbar">
+      <h1 id="appTitle"></h1>
+      <a class="icon-btn" href="test.html" aria-label="설정"><span data-icon="settings"></span></a>
+    </header>
+
+    <div class="chips">
+      <span class="chip"><span data-icon="paper"></span><span id="paperChip"></span></span>
+      <span class="chip count" id="countChip"></span>
     </div>
 
-    <div id="sheet" class="sheet"></div>
-    <p class="status" id="status" aria-live="polite"></p>
-
-    <button id="pickBtn" class="big">사진 고르기</button>
-    <button id="printBtn" class="big primary">인쇄하기</button>
-
-    <p class="tip">인쇄 화면에서 <b>용지: 엽서</b>, <b>배율 100%</b></p>
-
-    <a class="link" href="test.html">인쇄 위치 맞추기</a>
+    <div class="stage">
+      <div id="paper" class="paper"></div>
+    </div>
+    <p class="empty-hint" id="emptyHint">칸을 눌러 사진을 고르세요</p>
   </main>
+
+  <div class="bottombar">
+    <button id="printBtn" class="print-btn"><span data-icon="printer"></span><span>PRINT</span></button>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <!-- 사진 고르기 (화면에는 안 보임) -->
   <input id="manyInput" type="file" accept="image/*" multiple hidden>
   <input id="oneInput" type="file" accept="image/*" hidden>
 
   <!-- 칸 메뉴 -->
-  <div id="menu" class="menu" hidden>
-    <div class="menu-panel" role="dialog" aria-labelledby="menuTitle">
-      <h2 id="menuTitle"></h2>
-      <button id="menuReplace" class="big">사진 바꾸기</button>
-      <button id="menuRotate" class="big">90° 돌리기</button>
-      <button id="menuClear" class="big danger">비우기</button>
-      <button id="menuClose" class="link">닫기</button>
+  <div id="cellMenu" class="overlay" hidden>
+    <div class="panel" role="dialog" aria-labelledby="cellMenuTitle">
+      <div class="grabber"></div>
+      <h2 id="cellMenuTitle"></h2>
+      <div class="tiles">
+        <button id="menuReplace" class="tile"><span data-icon="replace"></span>바꾸기</button>
+        <button id="menuRotate" class="tile"><span data-icon="rotate"></span>돌리기</button>
+        <button id="menuClear" class="tile danger"><span data-icon="trash"></span>비우기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 인쇄 전 확인 -->
+  <div id="preflight" class="overlay" hidden>
+    <div class="panel" role="dialog" aria-labelledby="preflightTitle">
+      <div class="grabber"></div>
+      <h2 id="preflightTitle">인쇄 화면에서 이렇게 맞춰 주세요</h2>
+      <p class="panel-sub" id="preflightPaper"></p>
+      <div class="checklist">
+        <div class="row"><span data-icon="paper"></span><span class="row-label">용지 크기</span><b id="pfPaper"></b></div>
+        <div class="row"><span data-icon="scale"></span><span class="row-label">배율</span><b id="pfScale"></b></div>
+      </div>
+      <p class="panel-note">'용지에 맞춤'이 켜져 있으면 칸이 어긋나요.</p>
+      <button id="preflightGo" class="accent-btn">확인하고 인쇄</button>
+      <label class="check"><input id="skipPreflight" type="checkbox"><span>다음부터 바로 인쇄</span></label>
     </div>
   </div>
 </body>

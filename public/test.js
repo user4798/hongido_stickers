@@ -123,5 +123,12 @@ document.addEventListener('DOMContentLoaded', () => {
   $('resetBtn').addEventListener('click', () => setCal({ x: 0, y: 0 }));
   $('applyBtn').addEventListener('click', applyMeasured);
 
+  // 인쇄 전 확인 화면 켜기/끄기 (사진 화면의 '다음부터 바로 인쇄'와 같은 값)
+  const toggle = $('preflightToggle');
+  try { toggle.checked = localStorage.getItem(UI.skipPreflightKey) !== '1'; } catch (e) { toggle.checked = true; }
+  toggle.addEventListener('change', () => {
+    try { localStorage.setItem(UI.skipPreflightKey, toggle.checked ? '0' : '1'); } catch (e) { /* 저장 못 해도 무시 */ }
+  });
+
   render();
 });
