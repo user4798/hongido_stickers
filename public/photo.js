@@ -120,7 +120,8 @@ function drawEdited(ctx, img, source, e) {
 }
 
 // 2) 보관용 사진을 편집값대로 칸 크기(300dpi) 사진으로 만든다. 넘치는 부분은 잘린다.
-async function renderForCell(source, edit, cell) {
+//    look = 필터 { id, amount }. 인쇄 보정은 설정에 따라 함께 적용.
+async function renderForCell(source, edit, cell, look) {
   const img = await loadImage(source.blob);
   const { pxW, pxH } = cellPx(cell);
   const canvas = document.createElement('canvas');
@@ -131,6 +132,7 @@ async function renderForCell(source, edit, cell) {
   ctx.fillRect(0, 0, pxW, pxH);
   ctx.imageSmoothingQuality = 'high';
   drawEdited(ctx, img, source, edit);
+  applyLook(ctx, pxW, pxH, look, printFixEnabled(), 'print');
 
   const blob = await canvasToBlob(canvas, PHOTO.jpegQuality);
   freeCanvas(canvas);

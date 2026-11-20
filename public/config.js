@@ -23,6 +23,7 @@ const DEFAULT_PRESET = 'aone29602';
 const UI = {
   appTitle: 'Hongido_Stickers',
   skipPreflightKey: 'stickit.skipPreflight.v1',   // '다음부터 바로 인쇄'를 기억하는 이름
+  printFixKey: 'stickit.printFix.v1',             // 인쇄 보정 켜기/끄기를 기억하는 이름 (기본: 켜짐)
   toastMs: 2600,                                  // 짧은 안내가 떠 있는 시간
 };
 

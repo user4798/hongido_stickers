@@ -130,5 +130,12 @@ document.addEventListener('DOMContentLoaded', () => {
     try { localStorage.setItem(UI.skipPreflightKey, toggle.checked ? '0' : '1'); } catch (e) { /* 저장 못 해도 무시 */ }
   });
 
+  // 작은 스티커용 인쇄 보정 (기본: 켜짐)
+  const fix = $('printFixToggle');
+  try { fix.checked = localStorage.getItem(UI.printFixKey) !== '0'; } catch (e) { fix.checked = true; }
+  fix.addEventListener('change', () => {
+    try { localStorage.setItem(UI.printFixKey, fix.checked ? '1' : '0'); } catch (e) { /* 저장 못 해도 무시 */ }
+  });
+
   render();
 });

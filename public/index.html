@@ -16,6 +16,7 @@
   <script src="icons.js"></script>
   <script src="pdfwriter.js"></script>
   <script src="calibration.js"></script>
+  <script src="filters.js"></script>
   <script src="photo.js"></script>
   <script src="editor.js"></script>
   <script src="app.js"></script>
@@ -60,6 +61,18 @@
       <canvas id="editorCanvas"></canvas>
       <span id="editorInfo" class="editor-info"></span>
       <span class="editor-hint">한 손가락 이동 · 두 손가락 확대·회전</span>
+    </div>
+    <div class="filter-panel">
+      <div class="filter-head">
+        <span>필터</span>
+        <button id="applyAllBtn" class="apply-all" aria-pressed="false">모든 칸에 적용</button>
+      </div>
+      <div class="filter-amount" id="filterAmountRow" hidden>
+        <span id="filterAmountLabel"></span>
+        <input id="filterAmount" type="range" min="0" max="100" step="1" value="100" aria-label="필터 강도">
+        <span id="filterAmountValue"></span>
+      </div>
+      <div class="filter-strip" id="filterStrip"></div>
     </div>
     <div class="editor-tools">
       <button id="editorRotate" class="tool"><span data-icon="rotate"></span>90°</button>

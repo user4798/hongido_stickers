@@ -3,8 +3,9 @@
 const preset = PRESETS[DEFAULT_PRESET];
 const layout = layoutOf(preset);
 
-// 칸마다 { source, edit, print: {blob, bytes, pxW, pxH}, previewUrl } 또는 null
-// edit = 사진 위치·배율·각도 (photo.js 참고)
+// 칸마다 { source, edit, look, print: {blob, bytes, pxW, pxH}, previewUrl } 또는 null
+// edit = 사진 위치·배율·각도 (photo.js 참고), look = 필터 { id, amount } (filters.js 참고)
+const NO_LOOK = { id: 'none', amount: 1 };
 const cells = layout.cells.map(() => null);
 
 let busy = false;
@@ -14,10 +15,10 @@ const $ = (id) => document.getElementById(id);
 
 // ---------- 칸 채우기 ----------
 
-async function setCellPhoto(index, source, edit) {
-  const print = await renderForCell(source, edit, layout.cells[index]);
+async function setCellPhoto(index, source, edit, look = NO_LOOK) {
+  const print = await renderForCell(source, edit, layout.cells[index], look);
   clearCell(index);
-  cells[index] = { source, edit, print, previewUrl: URL.createObjectURL(print.blob) };
+  cells[index] = { source, edit, look, print, previewUrl: URL.createObjectURL(print.blob) };
 }
 
 function clearCell(index) {
@@ -62,16 +63,23 @@ async function addFiles(files, slots) {
   render();
 }
 
-// 편집 화면에서 '완료'를 누르면 그 위치대로 칸 사진을 다시 만든다
-async function applyEdit(index, edit) {
+// 편집 화면에서 '완료'를 누르면 그 위치·필터대로 칸 사진을 다시 만든다.
+// applyAll이면 같은 필터를 사진이 든 다른 칸에도 적용한다.
+async function applyEdit(index, edit, look, applyAll) {
   const c = cells[index];
   if (!c) return;
   busy = true;
-  cellButton(index).classList.add('loading');
-  await setCellPhoto(index, c.source, edit);
-  cellButton(index).classList.remove('loading');
+  const targets = applyAll ? cells.map((x, i) => (x ? i : -1)).filter((i) => i >= 0) : [index];
+  targets.forEach((i) => cellButton(i).classList.add('loading'));
+  for (const i of targets) {
+    const ci = cells[i];
+    await setCellPhoto(i, ci.source, i === index ? edit : ci.edit, look);
+    cellButton(i).classList.remove('loading');
+    render();
+  }
   busy = false;
   render();
+  if (applyAll && targets.length > 1) toast(`${targets.length}칸에 ${findFilter(look.id).name} 적용`);
 }
 
 function openEditor(index) {
@@ -80,9 +88,11 @@ function openEditor(index) {
     title: `${index + 1}번 칸`,
     source: c.source,
     edit: c.edit,
+    look: c.look,
     cell: layout.cells[index],
     sticker: preset.sticker,
-    onDone: (edit) => applyEdit(index, edit),
+    filledCount: cells.filter(Boolean).length,
+    onDone: (edit, look, applyAll) => applyEdit(index, edit, look, applyAll),
     onReplace: () => { targetCell = index; $('oneInput').click(); },
     onClear: () => { clearCell(index); render(); },
   });

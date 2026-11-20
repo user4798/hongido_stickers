@@ -5,6 +5,10 @@
 const Editor = (() => {
   let opts = null;          // openEditor에 넘긴 값
   let img = null;           // 보관용 사진
+  let base = null;          // 화면용으로 줄인 사진 (필터 미리 보기의 바탕)
+  let dispImg = null;       // 필터를 입힌 화면용 사진
+  let look = null;          // 지금 필터 { id, amount }
+  let applyAll = false;     // '모든 칸에 적용'
   let edit = null;          // 지금 편집값
   let pxW = 0, pxH = 0;     // 칸 사진 크기(픽셀)
   let canvas, ctx, dpr = 1;
@@ -47,7 +51,7 @@ const Editor = (() => {
       ctx.globalAlpha = alpha;
       ctx.translate(x, y);
       ctx.scale(k, k);
-      drawEdited(ctx, img, opts.source, edit);
+      drawEdited(ctx, dispImg || img, opts.source, edit);
       ctx.restore();
     };
 
@@ -267,6 +271,94 @@ const Editor = (() => {
     wheelTimer = setTimeout(settle, 220);
   }
 
+  // ---------- 필터 ----------
+
+  const PREVIEW_MAX = 900;   // 화면 미리 보기용 사진의 긴 쪽 픽셀 (빠르게 계산하려고 줄임)
+
+  function makeBase(image, source) {
+    const s = Math.min(1, PREVIEW_MAX / Math.max(source.w, source.h));
+    const c = document.createElement('canvas');
+    c.width = Math.round(source.w * s);
+    c.height = Math.round(source.h * s);
+    c.getContext('2d').drawImage(image, 0, 0, c.width, c.height);
+    return c;
+  }
+
+  // 화면용 사진에 지금 필터를 입힌다 (색만, 입자·선명도는 인쇄용에만)
+  function refreshPreview() {
+    if (!base) return;
+    const c = document.createElement('canvas');
+    c.width = base.width;
+    c.height = base.height;
+    const cctx = c.getContext('2d', { willReadFrequently: true });
+    cctx.drawImage(base, 0, 0);
+    applyLook(cctx, c.width, c.height, look, printFixEnabled(), 'preview');
+    dispImg = c;
+  }
+
+  let refreshPending = false;
+  function scheduleRefresh() {
+    if (refreshPending) return;
+    refreshPending = true;
+    setTimeout(() => { refreshPending = false; refreshPreview(); draw(); }, 30);
+  }
+
+  // 필터 줄: 이 칸의 지금 구도로 만든 작은 미리 보기
+  function buildStrip() {
+    const strip = $('filterStrip');
+    strip.innerHTML = '';
+    const tw = 54;
+    const th = Math.round(tw * pxH / pxW);
+    FILTERS.forEach((f) => {
+      const btn = document.createElement('button');
+      btn.className = 'filter-thumb';
+      btn.dataset.id = f.id;
+      const c = document.createElement('canvas');
+      c.width = tw * 2;
+      c.height = th * 2;
+      const cctx = c.getContext('2d', { willReadFrequently: true });
+      cctx.fillStyle = '#fff';
+      cctx.fillRect(0, 0, c.width, c.height);
+      cctx.save();
+      cctx.scale(c.width / pxW, c.height / pxH);
+      drawEdited(cctx, base, opts.source, edit);
+      cctx.restore();
+      applyLook(cctx, c.width, c.height, { id: f.id, amount: 1 }, printFixEnabled(), 'preview');
+      const label = document.createElement('span');
+      label.textContent = f.name;
+      btn.append(c, label);
+      btn.addEventListener('click', () => onFilterTap(f.id));
+      strip.appendChild(btn);
+    });
+  }
+
+  function onFilterTap(id) {
+    if (look.id === id) {
+      // 같은 필터를 한 번 더 누르면 강도 막대 열기/닫기
+      if (id !== 'none') $('filterAmountRow').hidden = !$('filterAmountRow').hidden;
+      return;
+    }
+    look = { id, amount: 1 };
+    $('filterAmountRow').hidden = true;
+    refreshPreview();
+    draw();
+    syncFilterUI();
+  }
+
+  function syncFilterUI() {
+    document.querySelectorAll('.filter-thumb').forEach((b) => {
+      b.classList.toggle('on', b.dataset.id === look.id);
+    });
+    const pct = Math.round((look.amount ?? 1) * 100);
+    $('filterAmount').value = pct;
+    $('filterAmountValue').textContent = pct;
+    $('filterAmountLabel').textContent = findFilter(look.id).name;
+    if (look.id === 'none') $('filterAmountRow').hidden = true;
+    const all = $('applyAllBtn');
+    all.classList.toggle('on', applyAll);
+    all.setAttribute('aria-pressed', applyAll ? 'true' : 'false');
+  }
+
   // ---------- 열기·닫기 ----------
 
   async function open(o) {
@@ -274,6 +366,13 @@ const Editor = (() => {
     ({ pxW, pxH } = cellPx(o.cell));
     edit = { ...o.edit };
     img = await loadImage(o.source.blob);
+    look = { ...(o.look || { id: 'none', amount: 1 }) };
+    applyAll = false;
+    base = makeBase(img, o.source);
+    refreshPreview();
+    buildStrip();
+    $('applyAllBtn').hidden = !(o.filledCount > 1);
+    syncFilterUI();
     $('editorTitle').textContent = o.title;
     $('editor').hidden = false;
     document.body.classList.add('editing');
@@ -288,6 +387,8 @@ const Editor = (() => {
     $('editor').hidden = true;
     document.body.classList.remove('editing');
     img = null;
+    base = null;
+    dispImg = null;
     opts = null;
   }
 
@@ -321,7 +422,13 @@ const Editor = (() => {
     window.addEventListener('resize', () => { if (opts) { layoutStage(); draw(); } });
 
     $('editorCancel').addEventListener('click', close);
-    $('editorDone').addEventListener('click', () => finish((o, r) => o.onDone(r)));
+    $('editorDone').addEventListener('click', () => finish((o, r) => o.onDone(r, { ...look }, applyAll)));
+    $('filterAmount').addEventListener('input', (e) => {
+      look = { ...look, amount: Number(e.target.value) / 100 };
+      $('filterAmountValue').textContent = e.target.value;
+      scheduleRefresh();
+    });
+    $('applyAllBtn').addEventListener('click', () => { applyAll = !applyAll; syncFilterUI(); });
     $('editorRotate').addEventListener('click', () => {
       const next = { ...edit, angle: edit.angle + Math.PI / 2 };
       animateTo(clampEdit(next, opts.source, pxW, pxH));
