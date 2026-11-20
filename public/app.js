@@ -139,7 +139,14 @@ function pct(v, total) {
 }
 
 function cellButton(i) {
-  return $('paper').children[i];
+  return $('paper').querySelectorAll('.cell')[i];
+}
+
+// 용지 미리 보기를 남는 공간(가로·세로)에 꽉 맞춘다
+function fitPaper() {
+  const stage = $('stage');
+  const w = Math.min(stage.clientWidth, stage.clientHeight * preset.paper.w / preset.paper.h);
+  $('paper').style.width = `${Math.floor(w)}px`;
 }
 
 function buildPaper() {
@@ -205,6 +212,9 @@ document.addEventListener('DOMContentLoaded', () => {
   $('pfScale').textContent = preset.printScale;
 
   buildPaper();
+  fitPaper();
+  window.addEventListener('resize', fitPaper);
+  if (window.visualViewport) visualViewport.addEventListener('resize', fitPaper);
   render();
 
   $('manyInput').addEventListener('change', (e) => {
