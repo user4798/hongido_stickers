@@ -3,7 +3,8 @@
 const preset = PRESETS[DEFAULT_PRESET];
 const layout = layoutOf(preset);
 
-// 칸마다 { source, rotation, print: {blob, bytes, pxW, pxH}, previewUrl } 또는 null
+// 칸마다 { source, edit, print: {blob, bytes, pxW, pxH}, previewUrl } 또는 null
+// edit = 사진 위치·배율·각도 (photo.js 참고)
 const cells = layout.cells.map(() => null);
 
 let busy = false;
@@ -13,10 +14,10 @@ const $ = (id) => document.getElementById(id);
 
 // ---------- 칸 채우기 ----------
 
-async function setCellPhoto(index, source, rotation) {
-  const print = await renderForCell(source, rotation, layout.cells[index]);
+async function setCellPhoto(index, source, edit) {
+  const print = await renderForCell(source, edit, layout.cells[index]);
   clearCell(index);
-  cells[index] = { source, rotation, print, previewUrl: URL.createObjectURL(print.blob) };
+  cells[index] = { source, edit, print, previewUrl: URL.createObjectURL(print.blob) };
 }
 
 function clearCell(index) {
@@ -44,7 +45,7 @@ async function addFiles(files, slots) {
   for (let k = 0; k < list.length; k++) {
     try {
       const source = await loadSource(list[k]);
-      await setCellPhoto(slots[k], source, defaultRotation(source, layout.cells[slots[k]]));
+      await setCellPhoto(slots[k], source, defaultEdit(source, layout.cells[slots[k]]));
     } catch (e) {
       failed++;
     }
@@ -61,15 +62,30 @@ async function addFiles(files, slots) {
   render();
 }
 
-async function rotateCell(index) {
+// 편집 화면에서 '완료'를 누르면 그 위치대로 칸 사진을 다시 만든다
+async function applyEdit(index, edit) {
   const c = cells[index];
-  if (!c || busy) return;
+  if (!c) return;
   busy = true;
   cellButton(index).classList.add('loading');
-  await setCellPhoto(index, c.source, (c.rotation + 90) % 360);
+  await setCellPhoto(index, c.source, edit);
   cellButton(index).classList.remove('loading');
   busy = false;
   render();
+}
+
+function openEditor(index) {
+  const c = cells[index];
+  Editor.open({
+    title: `${index + 1}번 칸`,
+    source: c.source,
+    edit: c.edit,
+    cell: layout.cells[index],
+    sticker: preset.sticker,
+    onDone: (edit) => applyEdit(index, edit),
+    onReplace: () => { targetCell = index; $('oneInput').click(); },
+    onClear: () => { clearCell(index); render(); },
+  });
 }
 
 // ---------- 인쇄 ----------
@@ -164,14 +180,11 @@ function toast(text) {
 }
 
 function openSheet(id) {
-  document.querySelectorAll('.cell.selected').forEach((b) => b.classList.remove('selected'));
-  if (id === 'cellMenu') cellButton(targetCell).classList.add('selected');
   $(id).hidden = false;
 }
 
 function closeSheet(id) {
   $(id).hidden = true;
-  document.querySelectorAll('.cell.selected').forEach((b) => b.classList.remove('selected'));
 }
 
 function onCellTap(i) {
@@ -181,8 +194,7 @@ function onCellTap(i) {
     $('manyInput').click();   // 빈 칸: 여러 장 고르기 → 이 칸부터 채움
     return;
   }
-  $('cellMenuTitle').textContent = `${i + 1}번 칸`;
-  openSheet('cellMenu');
+  openEditor(i);              // 사진 있는 칸: 편집 화면
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -211,12 +223,6 @@ document.addEventListener('DOMContentLoaded', () => {
     sendToPrint();
   });
 
-  $('menuReplace').addEventListener('click', () => { closeSheet('cellMenu'); $('oneInput').click(); });
-  $('menuRotate').addEventListener('click', () => { closeSheet('cellMenu'); rotateCell(targetCell); });
-  $('menuClear').addEventListener('click', () => { closeSheet('cellMenu'); clearCell(targetCell); render(); });
-
   // 어두운 바깥을 누르면 닫기
-  ['cellMenu', 'preflight'].forEach((id) => {
-    $(id).addEventListener('click', (e) => { if (e.target.id === id) closeSheet(id); });
-  });
+  $('preflight').addEventListener('click', (e) => { if (e.target.id === 'preflight') closeSheet('preflight'); });
 });

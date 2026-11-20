@@ -55,27 +55,82 @@ function defaultRotation(source, cell) {
   return photoLandscape !== cellLandscape ? 90 : 0;
 }
 
-// 2) 보관용 사진을 칸 크기(300dpi)에 맞게 돌리고, 넘치는 부분은 잘라 꽉 채운다.
-async function renderForCell(source, rotation, cell) {
+// ---------- 사진 위치(편집값) ----------
+// 편집값 edit = { angle, scale, cx, cy }
+//   칸 사진(300dpi 픽셀) 좌표에서, 사진 한가운데가 (cx, cy)에 오고,
+//   angle(라디안, 시계 방향)만큼 돌고, 원본 1픽셀이 scale 픽셀 크기로 그려진다.
+
+function cellPx(cell) {
+  return { pxW: mmToPx(cell.w), pxH: mmToPx(cell.h) };
+}
+
+// 이 각도에서 칸을 빈틈없이 덮는 가장 작은 배율
+function minScale(angle, source, pxW, pxH) {
+  const c = Math.abs(Math.cos(angle));
+  const s = Math.abs(Math.sin(angle));
+  return Math.max((pxW * c + pxH * s) / source.w, (pxW * s + pxH * c) / source.h);
+}
+
+// 처음 자동 배치: 가로 사진은 90° 돌리고, 칸을 꽉 채워 가운데에
+function defaultEdit(source, cell) {
+  const { pxW, pxH } = cellPx(cell);
+  const angle = defaultRotation(source, cell) * Math.PI / 180;
+  return { angle, scale: minScale(angle, source, pxW, pxH), cx: pxW / 2, cy: pxH / 2 };
+}
+
+// 각도가 0°·90°·180°·270° 근처면 똑바로 맞춘다
+function snapAngle(angle) {
+  const quarter = Math.PI / 2;
+  const nearest = Math.round(angle / quarter) * quarter;
+  return Math.abs(angle - nearest) <= PHOTO.snapDeg * Math.PI / 180 ? nearest : angle;
+}
+
+// 칸에 흰 빈틈이 생기지 않도록 배율과 위치를 바로잡는다 (최대 확대도 제한)
+function clampEdit(e, source, pxW, pxH) {
+  const smin = minScale(e.angle, source, pxW, pxH);
+  const scale = Math.min(Math.max(e.scale, smin), smin * PHOTO.maxZoom);
+  const cos = Math.cos(e.angle);
+  const sin = Math.sin(e.angle);
+  // 칸의 반쪽 크기를 사진 방향 기준으로 잰 값
+  const ex = (pxW * Math.abs(cos) + pxH * Math.abs(sin)) / 2;
+  const ey = (pxW * Math.abs(sin) + pxH * Math.abs(cos)) / 2;
+  const lx = Math.max(0, source.w * scale / 2 - ex);
+  const ly = Math.max(0, source.h * scale / 2 - ey);
+  // 칸 가운데가 사진 가운데에서 얼마나 떨어졌는지 (사진 방향 기준)
+  const fx = pxW / 2 - e.cx;
+  const fy = pxH / 2 - e.cy;
+  const dx = Math.min(lx, Math.max(-lx, cos * fx + sin * fy));
+  const dy = Math.min(ly, Math.max(-ly, -sin * fx + cos * fy));
+  return {
+    angle: e.angle,
+    scale,
+    cx: pxW / 2 - (cos * dx - sin * dy),
+    cy: pxH / 2 - (sin * dx + cos * dy),
+  };
+}
+
+// 편집값대로 사진을 캔버스에 그린다 (칸 사진 만들기와 편집 화면이 함께 씀)
+function drawEdited(ctx, img, source, e) {
+  ctx.save();
+  ctx.translate(e.cx, e.cy);
+  ctx.rotate(e.angle);
+  ctx.scale(e.scale, e.scale);
+  ctx.drawImage(img, -source.w / 2, -source.h / 2, source.w, source.h);
+  ctx.restore();
+}
+
+// 2) 보관용 사진을 편집값대로 칸 크기(300dpi) 사진으로 만든다. 넘치는 부분은 잘린다.
+async function renderForCell(source, edit, cell) {
   const img = await loadImage(source.blob);
-  const pxW = mmToPx(cell.w);
-  const pxH = mmToPx(cell.h);
+  const { pxW, pxH } = cellPx(cell);
   const canvas = document.createElement('canvas');
   canvas.width = pxW;
   canvas.height = pxH;
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, pxW, pxH);
-
-  const turned = rotation % 180 !== 0;
-  const rw = turned ? source.h : source.w;   // 돌린 뒤의 가로·세로
-  const rh = turned ? source.w : source.h;
-  const s = Math.max(pxW / rw, pxH / rh);    // 칸을 꽉 채우는 배율 (넘치는 부분은 잘림)
-
   ctx.imageSmoothingQuality = 'high';
-  ctx.translate(pxW / 2, pxH / 2);
-  ctx.rotate(rotation * Math.PI / 180);      // 시계 방향
-  ctx.drawImage(img, -source.w * s / 2, -source.h * s / 2, source.w * s, source.h * s);
+  drawEdited(ctx, img, source, edit);
 
   const blob = await canvasToBlob(canvas, PHOTO.jpegQuality);
   freeCanvas(canvas);
