@@ -323,7 +323,7 @@ const Editor = (() => {
       cctx.scale(c.width / pxW, c.height / pxH);
       drawEdited(cctx, base, opts.source, edit);
       cctx.restore();
-      applyLook(cctx, c.width, c.height, { id: f.id, amount: 1 }, printFixEnabled(), 'preview');
+      applyLook(cctx, c.width, c.height, { id: f.id, amount: f.defaultAmount ?? 1 }, printFixEnabled(), 'preview');
       const label = document.createElement('span');
       label.textContent = f.name;
       btn.append(c, label);
@@ -338,7 +338,7 @@ const Editor = (() => {
       if (id !== 'none') $('filterAmountRow').hidden = !$('filterAmountRow').hidden;
       return;
     }
-    look = { id, amount: 1 };
+    look = { id, amount: findFilter(id).defaultAmount ?? 1 };
     $('filterAmountRow').hidden = true;
     refreshPreview();
     draw();

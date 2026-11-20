@@ -14,17 +14,20 @@
 //   grain    필름 입자 (인쇄용 사진에만)
 //   vignette 가장자리 어둡게 (인쇄용 사진에만)
 //   posterize 색을 몇 단계로 끊기 (팝아트)
+//   defaultAmount 처음 골랐을 때 강도 (없으면 100%)
+//
+// 필름 입자는 B1(흑백)에만 둔다. 작은 잉크젯 스티커에서 컬러 입자는 지저분한 얼룩처럼 찍히기 쉽다.
 
 const FILTERS = [
   { id: 'none', name: '원본' },
 
   // A6 — 밝고 깨끗하게, 진한 색에 따뜻함을 더함. 일상·풍경·인물 두루.
   { id: 'A6', name: 'A6', gamma: 0.9, contrast: 1.04, sat: 1.06, temp: 0.15,
-    high: [0.01, 0.005, -0.005], grain: 0.02, vignette: 0.06 },
+    high: [0.01, 0.005, -0.005], vignette: 0.06 },
 
   // C1 — 선명하고 화사한 색. 초록·빨강을 살리고 밝은 부분에 살짝 분홍빛. 꽃·자연·바다.
   //      (진한 빨강이 잉크젯에서 뭉개지지 않게 채도를 조금 덜 올렸다)
-  { id: 'C1', name: 'C1', gamma: 0.96, contrast: 1.15, sat: 1.22, vib: 0.1, tint: 0.04,
+  { id: 'C1', name: 'C1', defaultAmount: 0.8, gamma: 0.96, contrast: 1.15, sat: 1.22, vib: 0.1, tint: 0.04,
     high: [0.02, 0, 0.015], hsl: [{ h: 110, w: 45, s: 0.2 }], vignette: 0.06 },
 
   // B1 — 고전적인 흑백, 대비 또렷하게, 아주 살짝 따뜻한 종이색.
@@ -32,13 +35,13 @@ const FILTERS = [
     high: [0.02, 0.012, -0.005], grain: 0.04, vignette: 0.1 },
 
   // Dog1 — 중간색을 살리고 튀는 색은 차분하게. 우아하고 고요한 클래식. 크림빛 하이라이트.
-  //        (작은 스티커에서 흐려 보이지 않게 채도를 너무 많이 빼지는 않았다)
-  { id: 'Dog1', name: 'Dog1', gamma: 0.97, contrast: 0.95, sat: 0.85, vib: -0.55, temp: 0.05, tint: 0.03,
-    fade: 0.05, matte: 0.02, shadow: [0.01, 0.005, 0], high: [0.025, 0.012, 0.01],
-    grain: 0.03, vignette: 0.08 },
+  //        (작은 스티커에서 흐리고 탁해 보이지 않게 차분하게 누르는 정도를 약 30% 줄이고 대비를 조금 올렸다)
+  { id: 'Dog1', name: 'Dog1', gamma: 0.97, contrast: 1.0, sat: 0.9, vib: -0.38, temp: 0.05, tint: 0.03,
+    fade: 0.04, matte: 0.02, shadow: [0.01, 0.005, 0], high: [0.025, 0.012, 0.01],
+    vignette: 0.08 },
 
   // Pop — 색을 몇 단계로 뚝뚝 끊은 팝아트. 면이 단순하고 또렷해서 아주 작은 스티커에서도 눈에 띈다.
-  { id: 'Pop', name: 'Pop', gamma: 0.95, contrast: 1.22, sat: 1.6, posterize: 4 },
+  { id: 'Pop', name: 'Pop', defaultAmount: 0.8, gamma: 0.95, contrast: 1.22, sat: 1.6, posterize: 4 },
 ];
 
 // 작은 잉크젯 스티커용 인쇄 보정: 중간 밝기·그림자 들어 올림, 채도 조금 ↑, 윤곽 또렷하게
