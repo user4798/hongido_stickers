@@ -3,7 +3,8 @@
 //       그래서 배포하면 다음에 열 때 새 버전이 바로 보이고, 오프라인에서는 마지막 버전이 열린다.
 // 사진은 여기서 다루지 않는다 (사진은 기기 안 IndexedDB에만 있다).
 
-const CACHE = 'hongido-app-v1';
+importScripts('config.js');
+const CACHE = `hongido-app-${APP.version}`;   // 버전이 바뀌면 예전 보관 파일은 지운다
 const CORE = [
   './', 'index.html', 'style.css', 'config.js', 'icons.js', 'pdfwriter.js', 'calibration.js',
   'filters.js', 'photo.js', 'photo-worker.js', 'editor.js', 'store.js', 'app.js',

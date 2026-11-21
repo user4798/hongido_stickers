@@ -300,6 +300,23 @@ input { -webkit-user-select: text; user-select: text; }
   --icon-cut: var(--accent-fill);
 }
 .print-btn.pick span:last-child { letter-spacing: 0.5px; padding-left: 0; }
+
+/* 끄는 동안: 아래 버튼이 휴지통으로 */
+.print-btn.trash {
+  background: #1c1c1e;
+  color: var(--text-2);
+  border: 1.5px dashed rgba(255, 255, 255, 0.25);
+  --icon-cut: #1c1c1e;
+  transition: background 0.15s, transform 0.15s;
+}
+.print-btn.trash span:last-child { letter-spacing: 0; padding-left: 0; font-size: 15px; }
+.print-btn.trash.hot {
+  background: var(--accent-fill);
+  color: #fff;
+  border-color: transparent;
+  transform: scale(1.04);
+  --icon-cut: var(--accent-fill);
+}
 .print-btn span:last-child {
   font-size: 15px;
   font-weight: 600;
@@ -436,6 +453,7 @@ input { -webkit-user-select: text; user-select: text; }
 .setting-row[hidden] { display: none; }
 .link-row:active { background: #2c2c30; }
 .chev-right { color: var(--text-2); }
+.app-info { margin: 16px 0 2px; text-align: center; font-size: 12px; color: var(--text-3); letter-spacing: 0.02em; }
 
 /* ---------- 판형 바꾸기 ---------- */
 

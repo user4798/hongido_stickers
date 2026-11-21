@@ -491,7 +491,7 @@ function sameSize(a, b) {
 }
 
 function onPaperDown(e) {
-  if (busy || drag || cells.length < 2) return;
+  if (busy || drag) return;
   const i = cellIndexAt(e.clientX, e.clientY);
   if (i < 0 || !cells[i]) return;
   drag = { from: i, id: e.pointerId, x0: e.clientX, y0: e.clientY, active: false, over: -1, ghost: null };
@@ -516,6 +516,10 @@ function startDrag(e) {
   document.body.appendChild(g);
   drag.ghost = g;
   btn.classList.add('lifted');
+  // 끄는 동안 아래 큰 버튼이 '휴지통'으로 바뀐다
+  $('printBtn').classList.add('trash');
+  $('mainIcon').innerHTML = iconSvg('trash');
+  $('mainLabel').textContent = '여기로 끌어 비우기';
   try { $('paper').setPointerCapture(drag.id); } catch (err) { /* 없어도 동작 */ }
 }
 
@@ -527,7 +531,15 @@ function onPaperMove(e) {
     return;
   }
   drag.ghost.style.transform = `translate(${e.clientX - drag.dx}px, ${e.clientY - drag.dy}px) scale(1.08)`;
-  const over = cellIndexAt(e.clientX, e.clientY);
+  // 휴지통 위인지
+  const tr = $('printBtn').getBoundingClientRect();
+  const onTrash = e.clientX >= tr.left - 8 && e.clientX <= tr.right + 8 && e.clientY >= tr.top - 16 && e.clientY <= tr.bottom + 8;
+  if (onTrash !== drag.onTrash) {
+    drag.onTrash = onTrash;
+    $('printBtn').classList.toggle('hot', onTrash);
+    $('mainLabel').textContent = onTrash ? '놓으면 비워져요' : '여기로 끌어 비우기';
+  }
+  const over = onTrash ? -1 : cellIndexAt(e.clientX, e.clientY);
   if (over !== drag.over) {
     if (drag.over >= 0) cellButton(drag.over).classList.remove('drop-target');
     removeSwapPreview();
@@ -544,10 +556,15 @@ function onPaperMove(e) {
 
 function onPaperUp(e) {
   if (!drag || e.pointerId !== drag.id) return;
-  const { active, from, over } = drag;
+  const { active, from, over, onTrash } = drag;
   cancelDrag();
   if (!active) return;
   ignoreClickUntil = performance.now() + 400;   // 놓는 순간의 '톡'이 편집 화면을 열지 않게
+  if (onTrash) {
+    clearCell(from);
+    render();
+    return;
+  }
   if (over < 0) return;
   [cells[from], cells[over]] = [cells[over], cells[from]];
   render();
@@ -574,9 +591,14 @@ function cancelDrag() {
   if (!drag) return;
   removeSwapPreview();
   clearTimeout(drag.timer);
+  const wasActive = drag.active;
   if (drag.ghost) drag.ghost.remove();
   document.querySelectorAll('.cell.lifted, .cell.drop-target').forEach((b) => b.classList.remove('lifted', 'drop-target'));
   drag = null;
+  if (wasActive) {
+    $('printBtn').classList.remove('trash', 'hot');
+    render();   // 아래 버튼을 원래대로 (사진 고르기 / PRINT)
+  }
 }
 
 function onCellTap(i) {
@@ -627,6 +649,8 @@ document.addEventListener('DOMContentLoaded', () => {
   $('setPreflight').addEventListener('change', (e) => setSkipPreflight(!e.target.checked));
   $('setPrintFix').addEventListener('change', (e) => { setPrintFixEnabled(e.target.checked); closeSheet('settings'); rerenderAll(); });
   $('calibRow').hidden = !preset.testSheet;
+
+  $('appInfo').textContent = `${APP.name} v${APP.version} · ${APP.date.replace(/-/g, '.')}`;
 
   restore();
 

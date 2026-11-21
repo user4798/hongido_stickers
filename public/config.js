@@ -61,6 +61,13 @@ function setPresetId(id) {
   try { localStorage.setItem(PRESET_KEY, id); } catch (e) { /* 저장 못 해도 이번에는 바뀜 */ }
 }
 
+// 앱 버전 — 배포할 때마다 올린다 (큰 기능: 가운데 숫자, 고침: 끝 숫자)
+const APP = {
+  name: 'Hongido Stickers',
+  version: '1.0.0',
+  date: '2026-11-21',
+};
+
 // 화면 설정
 const UI = {
   appTitle: 'Hongido_Stickers',
