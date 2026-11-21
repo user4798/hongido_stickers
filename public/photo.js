@@ -202,6 +202,7 @@ function renderCell(source, edit, cell, look) {
     },
   });
   createImageBitmap(source.bitmap).then((copy) => {
+    if (!photoWorker) { copy.close(); return; }
     photoWorker.postMessage({ id, bitmap: copy, w: source.w, h: source.h, edit, cell, look, printFix }, [copy]);
   }, (err) => workerJobs.get(id) && workerJobs.get(id).fail(err));
   return { preview, done };

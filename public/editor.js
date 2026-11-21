@@ -10,6 +10,8 @@ const Editor = (() => {
   let look = null;          // 지금 필터 { id, amount }
   let applyAll = false;     // '모든 칸에 적용'
   let edit = null;          // 지금 편집값
+  let initEdit = null;      // 열었을 때 편집값 (변경 여부 확인용)
+  let initLook = null;      // 열었을 때 필터 (변경 여부 확인용)
   let pxW = 0, pxH = 0;     // 칸 사진 크기(픽셀)
   let canvas, ctx, dpr = 1;
   let frame = { x: 0, y: 0, w: 0, h: 0, k: 1 };  // 화면 위 칸 프레임 위치(CSS 픽셀), k = 화면/칸픽셀
@@ -205,6 +207,7 @@ const Editor = (() => {
       downInfo = null;
       return;
     }
+    rulerBase = null;
     cancelAnimationFrame(anim);
     if (onPhoto) {
       try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* 캡처 못 해도 동작은 계속 */ }
@@ -234,7 +237,8 @@ const Editor = (() => {
       if (downInfo && Math.hypot(cur.x - downInfo.x, cur.y - downInfo.y) > 8) downInfo.moved = true;
     } else {
       const pivot = toCell(prev.x, prev.y);
-      applyGesture(pivot, cur.dist / prev.dist, cur.ang - prev.ang, (cur.x - prev.x) / k, (cur.y - prev.y) / k);
+      const ds = prev.dist > 1 ? cur.dist / prev.dist : 1;
+      applyGesture(pivot, ds, cur.ang - prev.ang, (cur.x - prev.x) / k, (cur.y - prev.y) / k);
     }
     prev = cur;
     requestDraw();
@@ -369,15 +373,17 @@ const Editor = (() => {
   const QUARTER = Math.PI / 2;
   const DEG = Math.PI / 180;
   let rotateMode = false;
+  let rulerBase = null;   // 각도 눈금을 움직이는 동안 기준 90° 각도를 고정 (±45° 끝에서 90° 튀는 것 방지)
 
   // 지금 각도를 '90°의 배수 + 미세 각도'로 나눈다
   function splitAngle(a) {
-    const base = Math.round(a / QUARTER) * QUARTER;
+    const base = rulerBase !== null ? rulerBase : Math.round(a / QUARTER) * QUARTER;
     return { base, fine: (a - base) / DEG };
   }
 
   function setRotateMode(on) {
     rotateMode = on;
+    rulerBase = null;
     $('rotatePanel').hidden = !on;
     document.querySelector('.filter-panel').hidden = on;
     $('editorRotate').classList.toggle('on', on);
@@ -412,8 +418,8 @@ const Editor = (() => {
   function onAngleInput(e) {
     let v = Number(e.target.value);
     if (Math.abs(v) < 0.8) v = 0;                       // 0° 근처는 똑바로 붙게
-    const { base } = splitAngle(edit.angle);
-    applyNow({ ...edit, angle: base + v * DEG });
+    if (rulerBase === null) rulerBase = Math.round(edit.angle / QUARTER) * QUARTER;
+    applyNow({ ...edit, angle: rulerBase + v * DEG });
   }
 
   function onZoomInput(e) {
@@ -424,15 +430,37 @@ const Editor = (() => {
     applyNow(edit);
   }
 
+  function sameEdit(a, b) {
+    return Math.abs(a.angle - b.angle) < 1e-4
+      && Math.abs(a.scale - b.scale) < 1e-4
+      && Math.abs(a.cx - b.cx) < 0.05
+      && Math.abs(a.cy - b.cy) < 0.05
+      && !!a.flip === !!b.flip;
+  }
+
+  function sameLook(a, b) {
+    return (a.id || 'none') === (b.id || 'none')
+      && Math.abs((a.amount ?? 1) - (b.amount ?? 1)) < 1e-3;
+  }
+
+  function isDirty() {
+    if (!opts || !initEdit) return false;
+    const cur = clampEdit({ ...edit, angle: snapAngle(edit.angle) }, opts.source, pxW, pxH);
+    return !sameEdit(cur, initEdit) || !sameLook(look, initLook) || applyAll;
+  }
+
   // ---------- 열기·닫기 ----------
 
   async function open(o) {
     opts = o;
     ({ pxW, pxH } = cellPx(o.cell));
     edit = { ...o.edit };
+    initEdit = { ...o.edit };
     img = o.source.bitmap;   // 메모리에 들고 있는 사진을 바로 쓴다 (다시 열지 않음)
     look = { ...(o.look || { id: 'none', amount: 1 }) };
+    initLook = { ...look };
     applyAll = false;
+    rulerBase = null;
     base = makeBase(img, o.source);
     refreshPreview();
     buildStrip();
@@ -455,19 +483,25 @@ const Editor = (() => {
     cancelAnimationFrame(anim);
     pointers.clear();
     suppressClickUntil = 0;
+    rulerBase = null;
     $('editor').hidden = true;
     document.body.classList.remove('editing');
     img = null;
     base = null;
     dispImg = null;
+    initEdit = null;
+    initLook = null;
     opts = null;
   }
 
   function finish(cb) {
     const o = opts;
     const result = clampEdit({ ...edit, angle: snapAngle(edit.angle) }, o.source, pxW, pxH);
+    const changed = !sameEdit(result, initEdit) || !sameLook(look, initLook) || applyAll;
+    const nextLook = { ...look };
+    const all = applyAll;
     close();
-    cb(o, result);
+    if (changed) cb(o, result, nextLook, all);
   }
 
   function init() {
@@ -492,8 +526,11 @@ const Editor = (() => {
     }));
     window.addEventListener('resize', () => { if (opts) { layoutStage(); draw(); } });
 
-    $('editorCancel').addEventListener('click', close);
-    $('editorDone').addEventListener('click', () => finish((o, r) => o.onDone(r, { ...look }, applyAll)));
+    $('editorCancel').addEventListener('click', () => {
+      if (isDirty() && !confirm('바꾼 내용을 버리고 닫을까요?')) return;
+      close();
+    });
+    $('editorDone').addEventListener('click', () => finish((o, r, nextLook, all) => o.onDone(r, nextLook, all)));
     $('filterAmount').addEventListener('input', (e) => {
       look = { ...look, amount: Number(e.target.value) / 100 };
       $('filterAmountValue').textContent = e.target.value;
@@ -502,16 +539,26 @@ const Editor = (() => {
     $('applyAllBtn').addEventListener('click', () => { applyAll = !applyAll; syncFilterUI(); });
     $('editorRotate').addEventListener('click', () => setRotateMode(!rotateMode));
     $('rot90Btn').addEventListener('click', () => {
+      rulerBase = null;
       animateTo(clampEdit({ ...edit, angle: edit.angle + QUARTER }, opts.source, pxW, pxH));
     });
     $('flipBtn').addEventListener('click', () => applyNow({ ...edit, flip: !edit.flip }));
+    $('angleRuler').addEventListener('pointerdown', () => {
+      rulerBase = Math.round(edit.angle / QUARTER) * QUARTER;
+    });
     $('angleRuler').addEventListener('input', onAngleInput);
-    $('angleRuler').addEventListener('change', () => $('angleRuler').blur());
+    $('angleRuler').addEventListener('change', () => { rulerBase = null; $('angleRuler').blur(); });
+    $('angleRuler').addEventListener('blur', () => { rulerBase = null; });
     $('zoomRange').addEventListener('input', onZoomInput);
     $('zoomRange').addEventListener('change', () => $('zoomRange').blur());
-    $('editorFit').addEventListener('click', () => animateTo(defaultEdit(opts.source, opts.cell)));
+    $('editorFit').addEventListener('click', () => { rulerBase = null; animateTo(defaultEdit(opts.source, opts.cell)); });
     $('editorReplace').addEventListener('click', () => { const o = opts; close(); o.onReplace(); });
-    $('editorClear').addEventListener('click', () => { const o = opts; close(); o.onClear(); });
+    $('editorClear').addEventListener('click', () => {
+      if (!confirm('이 칸의 사진을 비울까요?')) return;
+      const o = opts;
+      close();
+      o.onClear();
+    });
   }
 
   document.addEventListener('DOMContentLoaded', init);

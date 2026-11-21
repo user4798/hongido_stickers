@@ -73,18 +73,23 @@ function clearCell(index) {
 
 let saveTimer = 0;
 let restoring = false;
+function saveNow() {
+  if (restoring) return;
+  clearTimeout(saveTimer);
+  saveTimer = 0;
+  Store.save({
+    v: 1,
+    presetId,
+    cells: cells.map((c) => (c && c.source.file ? { file: c.source.file, edit: c.edit, look: c.look } : null)),
+    used,
+    lastPrinted,
+  });
+}
+
 function scheduleSave() {
   if (restoring) return;
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    Store.save({
-      v: 1,
-      presetId,
-      cells: cells.map((c) => (c && c.source.file ? { file: c.source.file, edit: c.edit, look: c.look } : null)),
-      used,
-      lastPrinted,
-    });
-  }, 400);
+  saveTimer = setTimeout(saveNow, 400);
 }
 
 // 지난번 작업을 그대로 되살린다
@@ -160,6 +165,8 @@ function newSheet() {
 
 // 새 용지로 시작: 사진, 사용함 표시, 인쇄 기록 모두 지움
 function startFresh() {
+  clearTimeout(saveTimer);
+  saveTimer = 0;
   clearPhotos();
   resetSheetState();
   Store.clear();
@@ -281,11 +288,16 @@ function printFileName() {
 }
 
 function sendToPrint() {
-  // 어느 칸을 인쇄로 보냈는지 기억해 두었다가, 나중에 '모두 비우기' 때 이어 쓰기를 물어본다
-  lastPrinted = cells.map((c, i) => (c ? i : -1)).filter((i) => i >= 0);
-  scheduleSave();
+  // 공유 창에서 취소하지 않고 실제로 보냈을 때만 인쇄 칸을 기억한다
+  const printed = cells.map((c, i) => (c ? i : -1)).filter((i) => i >= 0);
   const file = new File([buildPrintPdf()], printFileName(), { type: 'application/pdf' });
-  return sharePdf(file, UI.appTitle);
+  return sharePdf(file, UI.appTitle).then((ok) => {
+    if (ok) {
+      lastPrinted = printed;
+      scheduleSave();
+    }
+    return ok;
+  });
 }
 
 function skipPreflight() {
@@ -314,9 +326,10 @@ function onPrint() {
     return;
   }
   $('skipPreflight').checked = skipPreflight();
+  const filledCount = cells.filter(Boolean).length;
   const usedCount = used.filter(Boolean).length;
   $('pfUsedRow').hidden = !usedCount;
-  $('pfUsed').textContent = `${cells.length - usedCount}칸 (사용함 ${usedCount}칸 제외)`;
+  $('pfUsed').textContent = `${filledCount}칸 인쇄 (사용함 ${usedCount}칸 제외)`;
   $('pfMarkBtn').hidden = !canMarkUsed();
   openSheet('preflight');
   syncPrintButton();
@@ -397,18 +410,21 @@ function render() {
   const count = cells.filter(Boolean).length;
   const usedCount = used.filter(Boolean).length;
   const room = cells.length - usedCount;
+  const allUsed = count === 0 && room === 0;
   $('countChip').innerHTML = count ? `${count}<span class="of"> / ${room}</span>` : '';
   $('countChip').setAttribute('aria-label', `남은 ${room}칸 중 ${count}장`);
   $('newSheetBtn').hidden = (count === 0 && usedCount === 0) || markMode;
-  $('emptyHint').textContent = usedCount ? '빈 칸을 눌러 사진을 고르세요' : '칸을 눌러 사진을 고르세요';
+  $('emptyHint').textContent = allUsed
+    ? '남은 칸이 없어요 · 칸을 눌러 해제하거나 새 용지로 시작하세요'
+    : usedCount ? '빈 칸을 눌러 사진을 고르세요' : '칸을 눌러 사진을 고르세요';
   $('emptyHint').classList.toggle('show', count === 0 && !busy && !markMode);
   $('paper').classList.toggle('marking', markMode);
   $('markBanner').hidden = !markMode;
-  // 아래 큰 버튼: 표시 중이면 '표시 완료', 사진이 없으면 '사진 고르기', 있으면 'PRINT'
+  // 아래 큰 버튼: 표시 중이면 '표시 완료', 남은 칸이 없으면 '새 용지로 시작', 사진이 없으면 '사진 고르기', 있으면 'PRINT'
   const pick = count === 0;
   $('printBtn').classList.toggle('pick', pick || markMode);
-  $('mainIcon').innerHTML = iconSvg(markMode ? 'check' : pick ? 'photoAdd' : 'printer');
-  $('mainLabel').textContent = markMode ? '표시 완료' : pick ? '사진 고르기' : 'PRINT';
+  $('mainIcon').innerHTML = iconSvg(markMode ? 'check' : allUsed ? 'rotate' : pick ? 'photoAdd' : 'printer');
+  $('mainLabel').textContent = markMode ? '표시 완료' : allUsed ? '새 용지로 시작' : pick ? '사진 고르기' : 'PRINT';
 }
 
 // ---------- 이미 쓴 칸 표시하기 ----------
@@ -418,11 +434,13 @@ function enterMarkMode() {
   closeSheet('preflight');
   markMode = true;
   render();
+  fitPaper();
 }
 
 function exitMarkMode() {
   markMode = false;
   render();
+  fitPaper();
   scheduleSave();
   const usedCount = used.filter(Boolean).length;
   if (usedCount) toast(`사용함 ${usedCount}칸은 건너뛰고 인쇄해요`);
@@ -432,6 +450,7 @@ function onMainButton() {
   if (busy) return;
   if (markMode) { exitMarkMode(); return; }
   if (!cells.some(Boolean)) {
+    if (used.every(Boolean)) { newSheet(); return; }
     targetCell = 0;
     $('manyInput').click();
     return;
@@ -520,6 +539,7 @@ async function switchPreset(id) {
   preset = next;
   layout = nextLayout;
   cells = layout.cells.map(() => null);
+  markMode = false;
   resetSheetState();   // 다른 용지로 바꾸면 사용함 표시는 새로 시작
   setPresetId(id);
   applyPresetLabels();
@@ -724,7 +744,7 @@ function onCellTap(i) {
 document.addEventListener('DOMContentLoaded', () => {
   applyPresetLabels();
   buildPresetMenu();
-  $('paperChip').addEventListener('click', () => openSheet('presetMenu'));
+  $('paperChip').addEventListener('click', () => { if (!busy && !markMode) openSheet('presetMenu'); });
   $('presetMenu').addEventListener('click', (e) => { if (e.target.id === 'presetMenu') closeSheet('presetMenu'); });
 
   buildPaper();
@@ -755,6 +775,14 @@ document.addEventListener('DOMContentLoaded', () => {
   $('continueGo').addEventListener('click', () => { closeSheet('continueSheet'); continueSheet(); });
   $('continueFresh').addEventListener('click', () => { closeSheet('continueSheet'); startFresh(); });
   $('continueSheet').addEventListener('click', (e) => { if (e.target.id === 'continueSheet') closeSheet('continueSheet'); });
+
+  // 앱을 나가거나 다른 화면으로 이동할 때 예약된 자동 저장을 즉시 실행
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && saveTimer) saveNow();
+  });
+  window.addEventListener('pagehide', () => {
+    if (saveTimer) saveNow();
+  });
 
   // 저장한 작업·사용함 표시를 아이폰이 정리하지 않도록 부탁 (거절돼도 앱은 그대로 동작)
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});

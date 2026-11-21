@@ -45,10 +45,11 @@ async function sharePdf(file, title) {
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title });
-      return;
+      return true;
     } catch (e) {
-      if (e.name === 'AbortError') return; // 사용자가 닫음
+      if (e.name === 'AbortError') return false; // 사용자가 닫음
     }
   }
   openPdf(file);
+  return true;
 }
