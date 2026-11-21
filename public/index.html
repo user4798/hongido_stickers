@@ -21,6 +21,7 @@
   <script src="filters.js"></script>
   <script src="photo.js"></script>
   <script src="editor.js"></script>
+  <script src="store.js"></script>
   <script src="app.js"></script>
 </head>
 <body class="app">
@@ -30,12 +31,15 @@
         <span class="brand-word" aria-hidden="true">hongid<img class="brand-face" src="hongido-face.png" alt=""></span>
         <span class="brand-sub" aria-hidden="true">홍이도 스티커</span>
       </h1>
-      <a class="icon-btn round" href="test.html" aria-label="설정"><span data-icon="settings"></span></a>
+      <button class="icon-btn round" id="settingsBtn" aria-label="설정"><span data-icon="settings"></span></button>
     </header>
 
     <div class="chips">
       <button class="chip chip-btn" id="paperChip" aria-label="용지 판형 바꾸기"><span data-icon="paper"></span><span id="paperChipText"></span><span class="chev" data-icon="chevron"></span></button>
-      <span class="count" id="countChip" aria-live="polite"></span>
+      <span class="chips-right">
+        <span class="count" id="countChip" aria-live="polite"></span>
+        <button class="new-sheet" id="newSheetBtn" hidden>새 장</button>
+      </span>
     </div>
 
     <div class="stage" id="stage">
@@ -46,7 +50,7 @@
   </main>
 
   <div class="bottombar">
-    <button id="printBtn" class="print-btn"><span data-icon="printer"></span><span>PRINT</span></button>
+    <button id="printBtn" class="print-btn"><span class="icon" id="mainIcon"></span><span id="mainLabel">PRINT</span></button>
   </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
@@ -89,6 +93,28 @@
       <button id="editorFit" class="tool"><span data-icon="fit"></span>맞춤</button>
       <button id="editorReplace" class="tool"><span data-icon="replace"></span>바꾸기</button>
       <button id="editorClear" class="tool danger"><span data-icon="trash"></span>비우기</button>
+    </div>
+  </div>
+
+  <!-- 설정 -->
+  <div id="settings" class="overlay" hidden>
+    <div class="panel" role="dialog" aria-labelledby="settingsTitle">
+      <div class="grabber"></div>
+      <h2 id="settingsTitle">설정</h2>
+      <div class="settings-list">
+        <label class="setting-row">
+          <span>인쇄 전 확인 화면<small>PRINT를 누르면 용지·배율을 먼저 보여 줘요</small></span>
+          <span class="switch"><input id="setPreflight" type="checkbox"><span></span></span>
+        </label>
+        <label class="setting-row">
+          <span>작은 스티커용 인쇄 보정<small>조금 밝게·선명하게·진하게 찍혀요</small></span>
+          <span class="switch"><input id="setPrintFix" type="checkbox"><span></span></span>
+        </label>
+        <a class="setting-row link-row" id="calibRow" href="test.html">
+          <span>인쇄 위치 맞추기<small>시험 인쇄로 칸 위치를 맞춰요</small></span>
+          <span class="icon chev-right" data-icon="chevronRight"></span>
+        </a>
+      </div>
     </div>
   </div>
 

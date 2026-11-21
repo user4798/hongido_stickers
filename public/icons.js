@@ -19,6 +19,8 @@ const ICONS = {
   back: '<path d="M14.5 5.5L8 12l6.5 6.5"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   chevron: '<path d="M7 10l5 5 5-5"/>',
+  chevronRight: '<path d="M10 7l5 5-5 5"/>',
+  photoAdd: '<rect x="3.5" y="5" width="13" height="13" rx="2"/><path d="M3.5 15l3.6-3.6a1.2 1.2 0 0 1 1.7 0L13 15.6"/><circle cx="12.2" cy="9" r="1.2"/><line x1="19.5" y1="3" x2="19.5" y2="9"/><line x1="16.5" y1="6" x2="22.5" y2="6"/>',
   fit: '<path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9"/><path d="M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9"/>' +
     '<path d="M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15"/><path d="M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15"/>' +
     '<rect x="8.5" y="8.5" width="7" height="7" rx="1"/>',

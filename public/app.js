@@ -44,12 +44,89 @@ async function setCellPhoto(index, source, edit, look = NO_LOOK) {
   entry.ready = job.done.then((p) => { entry.print = p; return p; });
   entry.ready.catch(() => {});
   cells[index] = entry;
+  scheduleSave();
 }
 
 function clearCell(index) {
   const c = cells[index];
   if (c) releaseSource(c.source);
   cells[index] = null;
+  scheduleSave();
+}
+
+// ---------- 자동 저장 · 복원 ----------
+
+let saveTimer = 0;
+let restoring = false;
+function scheduleSave() {
+  if (restoring) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    Store.save({
+      v: 1,
+      presetId,
+      cells: cells.map((c) => (c && c.source.file ? { file: c.source.file, edit: c.edit, look: c.look } : null)),
+    });
+  }, 400);
+}
+
+// 지난번 작업을 그대로 되살린다
+async function restore() {
+  const saved = await Store.load();
+  if (!saved || !saved.cells || !saved.cells.some(Boolean) || !PRESETS[saved.presetId]) return;
+  if (saved.presetId !== presetId) {
+    presetId = saved.presetId;
+    preset = PRESETS[presetId];
+    layout = layoutOf(preset);
+    cells = layout.cells.map(() => null);
+    setPresetId(presetId);
+    applyPresetLabels();
+    syncPresetMenu();
+    buildPaper();
+    fitPaper();
+  }
+  restoring = true;
+  setBusy(true, '지난 작업 불러오는 중');
+  const list = saved.cells.slice(0, cells.length);
+  for (let i = 0; i < list.length; i++) {
+    const item = list[i];
+    if (!item || !item.file) continue;
+    cellButton(i).classList.add('loading');
+    try {
+      const src = await loadSource(item.file, sourceMaxFor(layout.cells[i]));
+      await setCellPhoto(i, src, item.edit || defaultEdit(src, layout.cells[i]), item.look || NO_LOOK);
+    } catch (e) { /* 이 사진은 건너뜀 */ }
+    cellButton(i).classList.remove('loading');
+    render();
+  }
+  restoring = false;
+  setBusy(false);
+  render();
+}
+
+// 새 장: 모든 칸을 비우고 저장된 작업도 지운다
+function newSheet() {
+  const n = cells.filter(Boolean).length;
+  if (!n || busy) return;
+  if (!confirm(`${n}장을 모두 비우고 새 장을 시작할까요?`)) return;
+  cells.forEach((c) => c && releaseSource(c.source));
+  cells = layout.cells.map(() => null);
+  Store.clear();
+  render();
+}
+
+// 설정을 바꿨을 때(예: 인쇄 보정) 칸 사진을 모두 다시 만든다
+async function rerenderAll() {
+  const filled = cells.map((c, i) => (c ? i : -1)).filter((i) => i >= 0);
+  if (!filled.length) return;
+  setBusy(true, '다시 만드는 중');
+  for (const i of filled) {
+    const c = cells[i];
+    await setCellPhoto(i, c.source, c.edit, c.look);
+    render();
+  }
+  setBusy(false);
+  render();
 }
 
 // 누른 칸부터 끝까지, 그다음 앞쪽의 빈 칸 순서
@@ -220,6 +297,15 @@ function buildPaper() {
     btn.style.width = pct(cell.w, preset.paper.w);
     btn.style.height = pct(cell.h, preset.paper.h);
     btn.innerHTML = iconSvg('plus');
+    // 칼선 바깥(잘려 나갈 부분)을 살짝 어둡게 보여 주는 덮개 — 칼선이 있는 용지만
+    if (preset.sticker) {
+      const cut = document.createElement('span');
+      cut.className = 'cut';
+      const mx = (cell.w - preset.sticker.w) / 2;
+      const my = (cell.h - preset.sticker.h) / 2;
+      cut.style.inset = `${pct(my, cell.h)} ${pct(mx, cell.w)}`;
+      btn.appendChild(cut);
+    }
     btn.addEventListener('click', () => onCellTap(i));
     paper.appendChild(btn);
   });
@@ -240,9 +326,25 @@ function render() {
     btn.setAttribute('aria-label', c ? `${i + 1}번 칸 사진` : `${i + 1}번 칸 비어 있음, 사진 고르기`);
   });
   const count = cells.filter(Boolean).length;
-  $('countChip').innerHTML = `${count}<span class="of"> / ${cells.length}</span>`;
+  $('countChip').innerHTML = count ? `${count}<span class="of"> / ${cells.length}</span>` : '';
   $('countChip').setAttribute('aria-label', `${cells.length}칸 중 ${count}장`);
+  $('newSheetBtn').hidden = count === 0;
   $('emptyHint').classList.toggle('show', count === 0 && !busy);
+  // 아래 큰 버튼: 사진이 없으면 '사진 고르기', 있으면 'PRINT'
+  const pick = count === 0;
+  $('printBtn').classList.toggle('pick', pick);
+  $('mainIcon').innerHTML = iconSvg(pick ? 'photoAdd' : 'printer');
+  $('mainLabel').textContent = pick ? '사진 고르기' : 'PRINT';
+}
+
+function onMainButton() {
+  if (busy) return;
+  if (!cells.some(Boolean)) {
+    targetCell = 0;
+    $('manyInput').click();
+    return;
+  }
+  onPrint();
 }
 
 let toastTimer = null;
@@ -261,6 +363,7 @@ function applyPresetLabels() {
   $('preflightPaper').textContent = `${preset.label} ${preset.paperKind}`;
   $('pfPaper').textContent = preset.printPaper;
   $('pfScale').textContent = preset.printScale;
+  if ($('calibRow')) $('calibRow').hidden = !preset.testSheet;
   $('pfNote').textContent = preset.printNote ? `${preset.printNote} '용지에 맞춤'은 꺼 주세요.` : "'용지에 맞춤'이 켜져 있으면 칸이 어긋나요.";
 }
 
@@ -350,6 +453,7 @@ async function switchPreset(id) {
     setBusy(false);
     render();
   }
+  scheduleSave();
   toast(`${next.menuTitle}로 바꿨어요`);
 }
 
@@ -392,7 +496,26 @@ document.addEventListener('DOMContentLoaded', () => {
     e.target.value = '';
   });
 
-  $('printBtn').addEventListener('click', onPrint);
+  $('printBtn').addEventListener('click', onMainButton);
+  $('newSheetBtn').addEventListener('click', newSheet);
+
+  // 설정 창
+  $('settingsBtn').addEventListener('click', () => {
+    $('setPreflight').checked = !skipPreflight();
+    $('setPrintFix').checked = printFixEnabled();
+    openSheet('settings');
+  });
+  $('settings').addEventListener('click', (e) => { if (e.target.id === 'settings') closeSheet('settings'); });
+  $('setPreflight').addEventListener('change', (e) => setSkipPreflight(!e.target.checked));
+  $('setPrintFix').addEventListener('change', (e) => { setPrintFixEnabled(e.target.checked); closeSheet('settings'); rerenderAll(); });
+  $('calibRow').hidden = !preset.testSheet;
+
+  restore();
+
+  // 오프라인에서도 열리게 (서비스 워커: 앱 파일을 기기에 보관해 두는 장치)
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
   $('preflightGo').addEventListener('click', () => {
     setSkipPreflight($('skipPreflight').checked);
     closeSheet('preflight');
