@@ -259,9 +259,10 @@ input { -webkit-user-select: text; user-select: text; }
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  font-family: var(--font-display);
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.12em;
   color: rgba(60, 175, 70, 0.75);
   pointer-events: none;
 }
