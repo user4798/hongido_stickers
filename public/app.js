@@ -651,6 +651,7 @@ document.addEventListener('DOMContentLoaded', () => {
   $('calibRow').hidden = !preset.testSheet;
 
   $('appInfo').textContent = `${APP.name} v${APP.version} · ${APP.date.replace(/-/g, '.')}`;
+  $('appCredit').textContent = `만든 사람 ${APP.maker} · 홍이도를 위해`;
 
   restore();
 

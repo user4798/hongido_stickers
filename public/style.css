@@ -454,6 +454,7 @@ input { -webkit-user-select: text; user-select: text; }
 .link-row:active { background: #2c2c30; }
 .chev-right { color: var(--text-2); }
 .app-info { margin: 16px 0 2px; text-align: center; font-size: 12px; color: var(--text-3); letter-spacing: 0.02em; }
+.app-credit { margin: 0 0 2px; text-align: center; font-size: 12px; color: var(--text-3); }
 
 /* ---------- 판형 바꾸기 ---------- */
 
