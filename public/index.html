@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#111113">
+  <meta name="theme-color" content="#1a0e12">
   <meta name="color-scheme" content="dark">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Hongido">
@@ -26,13 +26,16 @@
 <body class="app">
   <main class="layout">
     <header class="topbar">
-      <h1 id="appTitle"></h1>
-      <a class="icon-btn" href="test.html" aria-label="설정"><span data-icon="settings"></span></a>
+      <h1 class="brand" aria-label="홍이도 스티커">
+        <span class="brand-word" aria-hidden="true">hongid<img class="brand-face" src="hongido-face.png" alt=""></span>
+        <span class="brand-sub" aria-hidden="true">홍이도 스티커</span>
+      </h1>
+      <a class="icon-btn round" href="test.html" aria-label="설정"><span data-icon="settings"></span></a>
     </header>
 
     <div class="chips">
       <button class="chip chip-btn" id="paperChip" aria-label="용지 판형 바꾸기"><span data-icon="paper"></span><span id="paperChipText"></span><span class="chev" data-icon="chevron"></span></button>
-      <span class="chip count" id="countChip"></span>
+      <span class="count" id="countChip" aria-live="polite"></span>
     </div>
 
     <div class="stage" id="stage">

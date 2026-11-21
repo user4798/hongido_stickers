@@ -89,7 +89,7 @@ const Editor = (() => {
     ctx.restore();
 
     // 프레임 테두리
-    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#ffb547';
+    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#f81a44';
     ctx.lineWidth = 1.5;
     ctx.strokeRect(x - 0.75, y - 0.75, w + 1.5, h + 1.5);
 

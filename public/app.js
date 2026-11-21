@@ -240,7 +240,8 @@ function render() {
     btn.setAttribute('aria-label', c ? `${i + 1}번 칸 사진` : `${i + 1}번 칸 비어 있음, 사진 고르기`);
   });
   const count = cells.filter(Boolean).length;
-  $('countChip').textContent = `${count} / ${cells.length}`;
+  $('countChip').innerHTML = `${count}<span class="of"> / ${cells.length}</span>`;
+  $('countChip').setAttribute('aria-label', `${cells.length}칸 중 ${count}장`);
   $('emptyHint').classList.toggle('show', count === 0 && !busy);
 }
 
@@ -371,7 +372,6 @@ function onCellTap(i) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  $('appTitle').textContent = UI.appTitle;
   applyPresetLabels();
   buildPresetMenu();
   $('paperChip').addEventListener('click', () => openSheet('presetMenu'));
