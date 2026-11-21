@@ -765,6 +765,78 @@ function bindSheetSwipe(id) {
   panel.addEventListener('pointercancel', end);
 }
 
+// 기본 화면 고무줄 탄성(러버밴딩): 새로고침 없이 위·아래 끝에서 부드럽게 밀렸다 제자리로 복귀
+function bindMainRubberBand() {
+  const main = document.querySelector('.layout');
+  if (!main) return;
+  let r = null;
+  let suppressClickUntil = 0;
+
+  const anySheetOpen = () => ['preflight', 'continueSheet', 'presetMenu', 'settings'].some((id) => !$(id).hidden);
+  const rubber = (d) => {
+    const a = Math.abs(d);
+    // 아래로 당길 때(위쪽 끝 확인)는 넉넉하게, 위로 당길 때는 살짝만 반응
+    const factor = d > 0 ? 0.45 : 0.26;
+    return Math.sign(d) * (a * factor) / (1 + a / 140);
+  };
+
+  main.addEventListener('touchmove', (e) => {
+    if (!Editor.isOpen() && !anySheetOpen()) e.preventDefault();
+  }, { passive: false });
+
+  main.addEventListener('click', (e) => {
+    if (performance.now() < suppressClickUntil) { e.stopPropagation(); e.preventDefault(); }
+  }, true);
+
+  main.addEventListener('pointerdown', (e) => {
+    if (busy || Editor.isOpen() || anySheetOpen()) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (r) return;
+    r = { id: e.pointerId, x0: e.clientX, y0: e.clientY, active: false };
+  });
+
+  main.addEventListener('pointermove', (e) => {
+    if (!r || e.pointerId !== r.id) return;
+    // 사진 길게 눌러 끌기가 시작됐으면 탄성 동작은 즉시 양보
+    if (drag && drag.active) {
+      if (r.active) {
+        main.style.transition = 'transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)';
+        main.style.transform = '';
+      }
+      r = null;
+      return;
+    }
+    const dx = e.clientX - r.x0;
+    const dy = e.clientY - r.y0;
+    if (!r.active) {
+      if (Math.abs(dy) < 8 || Math.abs(dy) < Math.abs(dx) * 1.2) return;
+      r.active = true;
+      main.style.transition = 'none';
+    }
+    const y = rubber(dy);
+    main.style.transform = `translate3d(0, ${y.toFixed(1)}px, 0)`;
+  });
+
+  const end = (e) => {
+    if (!r || e.pointerId !== r.id) return;
+    const wasActive = r.active;
+    r = null;
+    if (!wasActive) return;
+    suppressClickUntil = performance.now() + 260;
+    ignoreClickUntil = performance.now() + 260;
+    main.style.transition = 'transform 0.38s cubic-bezier(0.22, 1, 0.36, 1)';
+    main.style.transform = 'translate3d(0, 0, 0)';
+  };
+  main.addEventListener('pointerup', end);
+  main.addEventListener('pointercancel', end);
+  main.addEventListener('transitionend', () => {
+    if (!r && main.style.transform === 'translate3d(0, 0, 0)') {
+      main.style.transform = '';
+      main.style.transition = '';
+    }
+  });
+}
+
 // ---------- 길게 눌러 끌어서 옮기기 · 바꾸기 ----------
 // 사진 칸을 0.3초 누르고 있으면 사진이 떠오르고, 다른 칸에 놓으면
 // 빈 칸이면 옮기고, 사진이 있으면 서로 바꾼다. 위치·확대·필터는 그대로 따라간다.
@@ -990,8 +1062,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   $('continueSheet').addEventListener('click', (e) => { if (e.target.id === 'continueSheet') closeSheet('continueSheet'); });
 
-  // 바텀 시트 아래로 쓸어내려 닫기 + PC Esc 키 닫기
+  // 바텀 시트 아래로 쓸어내려 닫기 + 기본 화면 고무줄 탄성 + PC Esc 키 닫기
   ['settings', 'presetMenu', 'continueSheet', 'preflight'].forEach(bindSheetSwipe);
+  bindMainRubberBand();
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     if (Editor.isOpen()) { Editor.cancel(); return; }
