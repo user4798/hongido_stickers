@@ -85,6 +85,8 @@ input { -webkit-user-select: text; user-select: text; }
 }
 .brand-face { height: 0.74em; width: auto; margin-left: 0.04em; margin-bottom: -0.02em; }
 .brand-sub { font-size: 11px; line-height: 1.2; color: var(--text-2); letter-spacing: 0.08em; }
+/* 로고 뒤 'stickers': 이름은 진하게, 하는 일은 옅고 가늘게 */
+.brand-tail { margin-left: 0.24em; font-weight: 300; color: var(--text-2); letter-spacing: -0.03em; }
 
 .icon-btn {
   display: inline-flex;
