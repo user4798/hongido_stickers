@@ -6,7 +6,7 @@
 
 <p align="center">
   사진만 고르면 스티커 용지의 정해진 칸에 꼭 맞게 인쇄되는 아이폰용 웹앱<br>
-  <b>v1.0.3</b> · 2026.11.21 · Made by Seoulrain for Hongido
+  <b>v1.0.4</b> · 2026.11.21 · Made by Seoulrain for Hongido
 </p>
 
 ---
@@ -98,6 +98,7 @@ python -m http.server 8000 --directory public
 ## 버전
 | 버전 | 날짜 | 내용 |
 |---|---|---|
+| v1.0.4 | 2026.11.21 | 홈 화면 아이콘·파비콘을 홍이도 얼굴로, 홈 화면 이름을 'hongido stickers'로 |
 | v1.0.3 | 2026.11.21 | 만든 사람 표기를 Seoulrain(첫 글자 대문자)으로 |
 | v1.0.2 | 2026.11.21 | 만든 사람 표기를 seoulrain으로 |
 | v1.0.1 | 2026.11.21 | 넣는 방향 표시를 영문(FEED)으로, 만든 사람 표시를 영문으로 |
