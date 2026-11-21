@@ -530,12 +530,14 @@ function onPaperMove(e) {
   const over = cellIndexAt(e.clientX, e.clientY);
   if (over !== drag.over) {
     if (drag.over >= 0) cellButton(drag.over).classList.remove('drop-target');
+    removeSwapPreview();
     drag.over = over >= 0 && over !== drag.from && sameSize(over, drag.from) ? over : -1;
     if (drag.over >= 0) {
       // 놓으면 무슨 일이 생기는지 미리 보여 준다: 사진이 있으면 '바꾸기', 비었으면 '옮기기'
       const t = cellButton(drag.over);
       t.dataset.drop = cells[drag.over] ? '바꾸기' : '옮기기';
       t.classList.add('drop-target');
+      if (cells[drag.over]) showSwapPreview(drag.from, drag.over);
     }
   }
 }
@@ -552,8 +554,25 @@ function onPaperUp(e) {
   scheduleSave();
 }
 
+// 바꾸기라면 상대 칸 사진이 원래 자리에 미리 와 있는 모습을 보여 준다
+function showSwapPreview(from, to) {
+  const btn = cellButton(from);
+  const r = btn.getBoundingClientRect();
+  const c = document.createElement('canvas');
+  c.width = Math.round(r.width * 2);
+  c.height = Math.round(r.height * 2);
+  c.getContext('2d').drawImage(cells[to].preview, 0, 0, c.width, c.height);
+  c.className = 'swap-preview';
+  btn.appendChild(c);
+}
+
+function removeSwapPreview() {
+  document.querySelectorAll('.swap-preview').forEach((c) => c.remove());
+}
+
 function cancelDrag() {
   if (!drag) return;
+  removeSwapPreview();
   clearTimeout(drag.timer);
   if (drag.ghost) drag.ghost.remove();
   document.querySelectorAll('.cell.lifted, .cell.drop-target').forEach((b) => b.classList.remove('lifted', 'drop-target'));
