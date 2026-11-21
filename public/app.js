@@ -593,8 +593,17 @@ function render() {
   // 아래 큰 버튼: 표시 중이면 '표시 완료', 남은 칸이 없으면 '새 용지로 시작', 사진이 없으면 '사진 고르기', 있으면 'PRINT'
   const pick = count === 0;
   $('printBtn').classList.toggle('pick', pick || markMode);
+  $('saveImgBtn').hidden = !(preset.collage && count > 0 && !markMode && !(drag && drag.active));
   $('mainIcon').innerHTML = iconSvg(markMode ? 'check' : allUsed ? 'rotate' : pick ? 'photoAdd' : 'printer');
   $('mainLabel').textContent = markMode ? '표시 완료' : allUsed ? '새 용지로 시작' : pick ? '사진 고르기' : 'PRINT';
+}
+
+function onSaveImage() {
+  if (busy || !preset.collage || !cells.some(Boolean)) return;
+  const file = buildCollageImageFile(preset, layout, cells, collage);
+  shareImage(file, UI.appTitle).then((res) => {
+    if (res === 'downloaded') toast('그림 파일을 저장했어요');
+  });
 }
 
 // ---------- 이미 쓴 칸 표시하기 ----------
@@ -985,6 +994,7 @@ function startDrag(e) {
   drag.ghost = g;
   btn.classList.add('lifted');
   // 끄는 동안 아래 큰 버튼이 '휴지통'으로 바뀐다
+  $('saveImgBtn').hidden = true;
   $('printBtn').classList.add('trash');
   $('mainIcon').innerHTML = iconSvg('trash');
   $('mainLabel').textContent = '여기로 끌어 비우기';
@@ -1217,6 +1227,7 @@ document.addEventListener('DOMContentLoaded', () => {
     e.target.value = '';
   });
 
+  $('saveImgBtn').addEventListener('click', onSaveImage);
   $('printBtn').addEventListener('click', onMainButton);
   $('paper').addEventListener('pointerdown', onPaperDown);
   $('paper').addEventListener('pointermove', onPaperMove);

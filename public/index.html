@@ -58,7 +58,10 @@
   </main>
 
   <div class="bottombar">
-    <button id="printBtn" class="print-btn"><span class="icon" id="mainIcon"></span><span id="mainLabel">PRINT</span></button>
+    <div class="bottombar-inner">
+      <button id="saveImgBtn" class="save-img-btn" hidden aria-label="그림 파일로 저장"><span data-icon="download"></span></button>
+      <button id="printBtn" class="print-btn"><span class="icon" id="mainIcon"></span><span id="mainLabel">PRINT</span></button>
+    </div>
   </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
@@ -86,11 +89,19 @@
     <div id="editorStage" class="editor-stage">
       <canvas id="editorCanvas"></canvas>
       <span id="editorInfo" class="editor-info"></span>
-      <span class="editor-hint" id="editorHint">한 손가락 이동 · 두 손가락 확대·회전</span>
+      <span class="editor-hint" id="editorHint">한 손가락 이동 · 두 손가락 확대</span>
       <div class="zoom-row" id="zoomRow" hidden>
         <span>확대</span>
         <input id="zoomRange" type="range" min="100" max="400" step="1" value="100" aria-label="확대">
       </div>
+    </div>
+    <div class="adjust-panel" id="adjustPanel" hidden>
+      <div class="adjust-slider-row">
+        <span class="adjust-name" id="adjustName">밝기</span>
+        <input id="adjustRange" type="range" min="-50" max="50" step="1" value="0" aria-label="조정 값">
+        <button id="adjustVal" class="adjust-val" type="button" aria-label="0으로 되돌리기">0</button>
+      </div>
+      <div class="adjust-strip" id="adjustStrip"></div>
     </div>
     <div class="rotate-panel" id="rotatePanel" hidden>
       <div class="angle-row">
@@ -116,6 +127,7 @@
       <div class="filter-strip" id="filterStrip"></div>
     </div>
     <div class="editor-tools">
+      <button id="editorAdjust" class="tool"><span data-icon="adjust"></span>조정</button>
       <button id="editorRotate" class="tool"><span data-icon="rotate"></span>회전</button>
       <button id="editorFit" class="tool"><span data-icon="fit"></span>맞춤</button>
       <button id="editorDup" class="tool" hidden><span data-icon="copy"></span>복제</button>

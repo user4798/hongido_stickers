@@ -29,6 +29,20 @@ const ICONS = {
   fit: '<path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9"/><path d="M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9"/>' +
     '<path d="M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15"/><path d="M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15"/>' +
     '<rect x="8.5" y="8.5" width="7" height="7" rx="1"/>',
+  download: '<path d="M12 4v11"/><path d="M7.5 10.5L12 15l4.5-4.5"/><path d="M5 19h14"/>',
+  adjust: '<line x1="4" y1="8" x2="20" y2="8"/><circle cx="15" cy="8" r="2.2" fill="var(--icon-cut, transparent)"/>' +
+    '<line x1="4" y1="16" x2="20" y2="16"/><circle cx="9" cy="16" r="2.2" fill="var(--icon-cut, transparent)"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/>',
+  contrast: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16Z" fill="currentColor" stroke="none"/>',
+  shadow: '<circle cx="12" cy="12" r="8"/><path d="M12 4v16M12 8l6.9-2M12 12l8-2.3M12 16l6.9-2"/>',
+  droplet: '<path d="M12 3.5C12 3.5 6 10.2 6 14.5a6 6 0 0 0 12 0C18 10.2 12 3.5 12 3.5Z"/>',
+  temp: '<path d="M14 14.8V5.5a2 2 0 1 0-4 0v9.3a3.5 3.5 0 1 0 4 0Z"/><circle cx="12" cy="17" r="1.2" fill="currentColor" stroke="none"/>',
+  vignette: '<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><ellipse cx="12" cy="12" rx="5.5" ry="4" stroke-dasharray="2 2"/>',
+  grain: '<circle cx="6.5" cy="7" r="1" fill="currentColor" stroke="none"/><circle cx="12.5" cy="6" r="1" fill="currentColor" stroke="none"/>' +
+    '<circle cx="17.5" cy="8" r="1" fill="currentColor" stroke="none"/><circle cx="8" cy="12.5" r="1" fill="currentColor" stroke="none"/>' +
+    '<circle cx="14" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="18" cy="14" r="1" fill="currentColor" stroke="none"/>' +
+    '<circle cx="6.5" cy="17.5" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="17.5" r="1" fill="currentColor" stroke="none"/>' +
+    '<circle cx="17" cy="18" r="1" fill="currentColor" stroke="none"/>',
 };
 
 function iconSvg(name) {

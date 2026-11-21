@@ -242,26 +242,58 @@ function sharpen(data, w, h, amount) {
   }
 }
 
-// 캔버스에 그려진 사진에 필터·인쇄 보정을 적용한다.
-// look = { id, amount(0~1) }, mode: 'print'(입자·비네팅·선명도 포함) | 'preview'(색만)
+// 사용자 수동 조정 항목 (VSCO 스타일: 자주 쓰는 5종 + 비네팅·그레인)
+const ADJUSTMENTS = [
+  { key: 'exp', name: '밝기',   icon: 'sun',      min: -50, max: 50 },
+  { key: 'con', name: '대비',   icon: 'contrast', min: -50, max: 50 },
+  { key: 'shd', name: '그림자', icon: 'shadow',   min: -50, max: 50 },
+  { key: 'sat', name: '채도',   icon: 'droplet',  min: -50, max: 50 },
+  { key: 'tmp', name: '색온도', icon: 'temp',     min: -50, max: 50 },
+  { key: 'vig', name: '비네팅', icon: 'vignette', min: 0,   max: 100 },
+  { key: 'grn', name: '그레인', icon: 'grain',    min: 0,   max: 100 },
+];
+
+function emptyAdj() {
+  return { exp: 0, con: 0, shd: 0, sat: 0, tmp: 0, vig: 0, grn: 0 };
+}
+
+function hasAdjust(adj) {
+  if (!adj) return false;
+  return !!(adj.exp || adj.con || adj.shd || adj.sat || adj.tmp || adj.vig || adj.grn);
+}
+
+// 캔버스에 그려진 사진에 필터·수동 조정·인쇄 보정을 적용한다.
+// look = { id, amount(0~1), adj? }, mode: 'print'(필터 입자·비네팅·선명도 포함) | 'preview'
 function applyLook(ctx, w, h, look, printFix, mode) {
   const f = findFilter(look && look.id);
   const amount = look && look.amount !== undefined ? look.amount : 1;
+  const adj = look && look.adj ? look.adj : null;
   const useFilter = f.id !== 'none' && amount > 0;
-  if (!useFilter && !printFix) return;
+  const useAdj = hasAdjust(adj);
+  if (!useFilter && !printFix && !useAdj) return;
 
   const img = ctx.getImageData(0, 0, w, h);
   const d = img.data;
   const isPrint = mode === 'print';
   const rand = seededRandom(w * 7919 + h);
-  const grain = isPrint && useFilter ? (f.grain || 0) * amount : 0;
-  const vig = isPrint && useFilter ? (f.vignette || 0) * amount : 0;
+  const userGrain = adj && adj.grn ? (adj.grn / 100) * 0.16 : 0;
+  const userVig = adj && adj.vig ? (adj.vig / 100) * 0.55 : 0;
+  const grain = (isPrint && useFilter ? (f.grain || 0) * amount : 0) + userGrain;
+  const vig = (isPrint && useFilter ? (f.vignette || 0) * amount : 0) + userVig;
   const cx = w / 2, cy = h / 2;
   const invMaxR2 = 1 / (cx * cx + cy * cy || 1);
-  const lut = colorTable(useFilter ? f : null, amount, printFix);
+  const useLut = useFilter || printFix;
+  const lut = useLut ? colorTable(useFilter ? f : null, amount, printFix) : null;
   const N1 = LUT_N - 1, K = N1 / 255, NN = LUT_N * LUT_N, N3 = LUT_N * 3, NN3 = NN * 3;
   // 색 단계 나누기: 보정표는 경계를 부드럽게 섞으므로, 단계는 표를 거친 뒤 따로 끊는다
   const steps = useFilter && f.posterize ? f.posterize - 1 : 0;
+
+  // 수동 색 조정 계수 (반복문 밖에서 한 번만 계산)
+  const expMul = adj && adj.exp ? Math.pow(2, (adj.exp / 50) * 0.72) : 1;
+  const shdAmt = adj && adj.shd ? (adj.shd / 50) * 0.34 : 0;
+  const conFac = adj && adj.con ? 1 + (adj.con / 50) * 0.45 : 1;
+  const tmpAmt = adj && adj.tmp ? (adj.tmp / 50) * 0.12 : 0;
+  const satFac = adj && adj.sat ? 1 + (adj.sat / 50) * 0.75 : 1;
 
   for (let y = 0; y < h; y++) {
     const dy = y - cy;
@@ -269,39 +301,59 @@ function applyLook(ctx, w, h, look, printFix, mode) {
     const rowOff = y * w;
     for (let x = 0; x < w; x++) {
       const i = (rowOff + x) * 4;
-      // 색 보정표에서 찾기 (r·g·b를 바로 풀어 계산해 반복문·배열 비용 제거)
-      const fr = d[i] * K, fg = d[i + 1] * K, fb = d[i + 2] * K;
-      const r0 = fr | 0, g0 = fg | 0, b0 = fb | 0;
-      const dr = fr - r0, dg = fg - g0, db = fb - b0;
-      const sr = r0 < N1 ? 3 : 0, sg = g0 < N1 ? N3 : 0, sb = b0 < N1 ? NN3 : 0;
-      const p000 = (b0 * NN + g0 * LUT_N + r0) * 3;
-      const p100 = p000 + sr, p010 = p000 + sg, p110 = p010 + sr;
-      const p001 = p000 + sb, p101 = p001 + sr, p011 = p001 + sg, p111 = p011 + sr;
+      let r, g, b;
+      if (useLut) {
+        // 색 보정표에서 찾기 (r·g·b를 바로 풀어 계산해 반복문·배열 비용 제거)
+        const fr = d[i] * K, fg = d[i + 1] * K, fb = d[i + 2] * K;
+        const r0 = fr | 0, g0 = fg | 0, b0 = fb | 0;
+        const dr = fr - r0, dg = fg - g0, db = fb - b0;
+        const sr = r0 < N1 ? 3 : 0, sg = g0 < N1 ? N3 : 0, sb = b0 < N1 ? NN3 : 0;
+        const p000 = (b0 * NN + g0 * LUT_N + r0) * 3;
+        const p100 = p000 + sr, p010 = p000 + sg, p110 = p010 + sr;
+        const p001 = p000 + sb, p101 = p001 + sr, p011 = p001 + sg, p111 = p011 + sr;
 
-      const r00 = lut[p000] + (lut[p100] - lut[p000]) * dr;
-      const r10 = lut[p010] + (lut[p110] - lut[p010]) * dr;
-      const r01 = lut[p001] + (lut[p101] - lut[p001]) * dr;
-      const r11 = lut[p011] + (lut[p111] - lut[p011]) * dr;
-      const rc0 = r00 + (r10 - r00) * dg;
-      let r = rc0 + (r01 + (r11 - r01) * dg - rc0) * db;
+        const r00 = lut[p000] + (lut[p100] - lut[p000]) * dr;
+        const r10 = lut[p010] + (lut[p110] - lut[p010]) * dr;
+        const r01 = lut[p001] + (lut[p101] - lut[p001]) * dr;
+        const r11 = lut[p011] + (lut[p111] - lut[p011]) * dr;
+        const rc0 = r00 + (r10 - r00) * dg;
+        r = rc0 + (r01 + (r11 - r01) * dg - rc0) * db;
 
-      const g00 = lut[p000 + 1] + (lut[p100 + 1] - lut[p000 + 1]) * dr;
-      const g10 = lut[p010 + 1] + (lut[p110 + 1] - lut[p010 + 1]) * dr;
-      const g01 = lut[p001 + 1] + (lut[p101 + 1] - lut[p001 + 1]) * dr;
-      const g11 = lut[p011 + 1] + (lut[p111 + 1] - lut[p011 + 1]) * dr;
-      const gc0 = g00 + (g10 - g00) * dg;
-      let g = gc0 + (g01 + (g11 - g01) * dg - gc0) * db;
+        const g00 = lut[p000 + 1] + (lut[p100 + 1] - lut[p000 + 1]) * dr;
+        const g10 = lut[p010 + 1] + (lut[p110 + 1] - lut[p010 + 1]) * dr;
+        const g01 = lut[p001 + 1] + (lut[p101 + 1] - lut[p001 + 1]) * dr;
+        const g11 = lut[p011 + 1] + (lut[p111 + 1] - lut[p011 + 1]) * dr;
+        const gc0 = g00 + (g10 - g00) * dg;
+        g = gc0 + (g01 + (g11 - g01) * dg - gc0) * db;
 
-      const b00 = lut[p000 + 2] + (lut[p100 + 2] - lut[p000 + 2]) * dr;
-      const b10 = lut[p010 + 2] + (lut[p110 + 2] - lut[p010 + 2]) * dr;
-      const b01 = lut[p001 + 2] + (lut[p101 + 2] - lut[p001 + 2]) * dr;
-      const b11 = lut[p011 + 2] + (lut[p111 + 2] - lut[p011 + 2]) * dr;
-      const bc0 = b00 + (b10 - b00) * dg;
-      let b = bc0 + (b01 + (b11 - b01) * dg - bc0) * db;
+        const b00 = lut[p000 + 2] + (lut[p100 + 2] - lut[p000 + 2]) * dr;
+        const b10 = lut[p010 + 2] + (lut[p110 + 2] - lut[p010 + 2]) * dr;
+        const b01 = lut[p001 + 2] + (lut[p101 + 2] - lut[p001 + 2]) * dr;
+        const b11 = lut[p011 + 2] + (lut[p111 + 2] - lut[p011 + 2]) * dr;
+        const bc0 = b00 + (b10 - b00) * dg;
+        b = bc0 + (b01 + (b11 - b01) * dg - bc0) * db;
+      } else {
+        r = d[i] / 255; g = d[i + 1] / 255; b = d[i + 2] / 255;
+      }
 
       if (steps) {
         const pr = Math.round(r * steps) / steps, pg = Math.round(g * steps) / steps, pb = Math.round(b * steps) / steps;
         r += (pr - r) * amount; g += (pg - g) * amount; b += (pb - b) * amount;
+      }
+      if (expMul !== 1) { r *= expMul; g *= expMul; b *= expMul; }
+      if (shdAmt) {
+        const l = 0.299 * r + 0.587 * g + 0.114 * b;
+        const lc = l < 0 ? 0 : l > 1 ? 1 : l;
+        const ws = (1 - lc) * (1 - lc) * shdAmt;
+        r += ws; g += ws; b += ws;
+      }
+      if (conFac !== 1) {
+        r = (r - 0.5) * conFac + 0.5; g = (g - 0.5) * conFac + 0.5; b = (b - 0.5) * conFac + 0.5;
+      }
+      if (tmpAmt) { r += tmpAmt; b -= tmpAmt; }
+      if (satFac !== 1) {
+        const l2 = 0.299 * r + 0.587 * g + 0.114 * b;
+        r = l2 + (r - l2) * satFac; g = l2 + (g - l2) * satFac; b = l2 + (b - l2) * satFac;
       }
       if (vig) {
         const dx = x - cx;

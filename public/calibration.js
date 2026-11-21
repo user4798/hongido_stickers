@@ -53,3 +53,24 @@ async function sharePdf(file, title) {
   openPdf(file);
   return true;
 }
+
+// 그림 파일(JPG): 아이폰에서는 공유 창(이미지 저장·카톡·인스타)으로, PC에서는 바로 내려받기
+async function shareImage(file, title) {
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title });
+      return 'shared';
+    } catch (e) {
+      if (e.name === 'AbortError') return 'cancelled';
+    }
+  }
+  const url = URL.createObjectURL(file);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = file.name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  return 'downloaded';
+}

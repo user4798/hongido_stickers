@@ -240,7 +240,8 @@ const Editor = (() => {
     } else {
       const pivot = toCell(prev.x, prev.y);
       const ds = prev.dist > 1 ? cur.dist / prev.dist : 1;
-      applyGesture(pivot, ds, cur.ang - prev.ang, (cur.x - prev.x) / k, (cur.y - prev.y) / k);
+      // 두 손가락은 확대·이동 전용 (수평이 틀어지지 않게 회전은 회전 도구에서만)
+      applyGesture(pivot, ds, 0, (cur.x - prev.x) / k, (cur.y - prev.y) / k);
     }
     prev = cur;
     requestDraw();
@@ -368,7 +369,7 @@ const Editor = (() => {
       if (id !== 'none') $('filterAmountRow').hidden = !$('filterAmountRow').hidden;
       return;
     }
-    look = { id, amount: findFilter(id).defaultAmount ?? 1 };
+    look = { id, amount: findFilter(id).defaultAmount ?? 1, adj: { ...look.adj } };
     $('filterAmountRow').hidden = true;
     refreshPreview();
     draw();
@@ -389,12 +390,69 @@ const Editor = (() => {
     all.setAttribute('aria-pressed', applyAll ? 'true' : 'false');
   }
 
-  // ---------- 회전 도구 (각도 눈금 · 90° · 좌우 반전) · PC 확대 막대 ----------
+  // ---------- 조정 도구 (VSCO 스타일 7종) & 회전 도구 ----------
 
   const QUARTER = Math.PI / 2;
   const DEG = Math.PI / 180;
-  let rotateMode = false;
-  let rulerBase = null;   // 각도 눈금을 움직이는 동안 기준 90° 각도를 고정 (±45° 끝에서 90° 튀는 것 방지)
+  let panelMode = 'filter';   // 'filter' | 'adjust' | 'rotate'
+  let activeAdj = 'exp';      // 지금 선택한 조정 항목 키
+  let rulerBase = null;       // 각도 눈금을 움직이는 동안 기준 90° 각도를 고정 (±45° 끝에서 90° 튀는 것 방지)
+
+  function setPanelMode(mode) {
+    panelMode = mode;
+    rulerBase = null;
+    document.querySelector('.filter-panel').hidden = mode !== 'filter';
+    $('adjustPanel').hidden = mode !== 'adjust';
+    $('rotatePanel').hidden = mode !== 'rotate';
+    $('editorAdjust').classList.toggle('on', mode === 'adjust');
+    $('editorRotate').classList.toggle('on', mode === 'rotate');
+    if (mode === 'adjust') syncAdjustUI();
+    if (opts) { layoutStage(); draw(); }
+  }
+
+  function buildAdjustStrip() {
+    const strip = $('adjustStrip');
+    strip.innerHTML = '';
+    ADJUSTMENTS.forEach((item) => {
+      const btn = document.createElement('button');
+      btn.className = 'adj-btn';
+      btn.type = 'button';
+      btn.dataset.key = item.key;
+      const ic = document.createElement('span');
+      ic.className = 'icon';
+      ic.innerHTML = iconSvg(item.icon);
+      const label = document.createElement('span');
+      label.textContent = item.name;
+      btn.append(ic, label);
+      btn.addEventListener('click', () => {
+        activeAdj = item.key;
+        syncAdjustUI();
+      });
+      strip.appendChild(btn);
+    });
+  }
+
+  function syncAdjustUI() {
+    if (!look) return;
+    const adj = look.adj || emptyAdj();
+    const cur = ADJUSTMENTS.find((a) => a.key === activeAdj) || ADJUSTMENTS[0];
+    const v = adj[cur.key] || 0;
+    $('adjustName').textContent = cur.name;
+    const range = $('adjustRange');
+    range.min = cur.min;
+    range.max = cur.max;
+    range.value = v;
+    const valEl = $('adjustVal');
+    valEl.textContent = `${v > 0 && cur.min < 0 ? '+' : ''}${v}`;
+    valEl.classList.toggle('changed', v !== 0);
+    document.querySelectorAll('.adj-btn').forEach((b) => {
+      const k = b.dataset.key;
+      b.classList.toggle('on', k === cur.key);
+      b.classList.toggle('edited', !!(adj[k] || 0));
+    });
+    // 편집 도구 '조정' 버튼에도 조정값이 하나라도 있으면 표시
+    $('editorAdjust').classList.toggle('on', panelMode === 'adjust' || hasAdjust(adj));
+  }
 
   // 지금 각도를 '90°의 배수 + 미세 각도'로 나눈다
   function splitAngle(a) {
@@ -402,17 +460,8 @@ const Editor = (() => {
     return { base, fine: (a - base) / DEG };
   }
 
-  function setRotateMode(on) {
-    rotateMode = on;
-    rulerBase = null;
-    $('rotatePanel').hidden = !on;
-    document.querySelector('.filter-panel').hidden = on;
-    $('editorRotate').classList.toggle('on', on);
-    if (opts) { layoutStage(); draw(); }
-  }
-
   function syncRotateUI(smin) {
-    if (rotateMode) {
+    if (panelMode === 'rotate') {
       const { fine } = splitAngle(edit.angle);
       const v = Math.round(fine * 2) / 2;
       if (document.activeElement !== $('angleRuler')) $('angleRuler').value = v;
@@ -461,9 +510,19 @@ const Editor = (() => {
       && !!a.flip === !!b.flip;
   }
 
+  function cloneLook(l) {
+    return {
+      id: (l && l.id) || 'none',
+      amount: l && l.amount !== undefined ? l.amount : 1,
+      adj: { ...emptyAdj(), ...(l && l.adj ? l.adj : {}) },
+    };
+  }
+
   function sameLook(a, b) {
-    return (a.id || 'none') === (b.id || 'none')
-      && Math.abs((a.amount ?? 1) - (b.amount ?? 1)) < 1e-3;
+    if ((a.id || 'none') !== (b.id || 'none')) return false;
+    if (Math.abs((a.amount ?? 1) - (b.amount ?? 1)) >= 1e-3) return false;
+    const aa = a.adj || emptyAdj(), bb = b.adj || emptyAdj();
+    return ADJUSTMENTS.every((item) => (aa[item.key] || 0) === (bb[item.key] || 0));
   }
 
   function isDirty() {
@@ -493,10 +552,11 @@ const Editor = (() => {
     edit = { ...o.edit };
     initEdit = { ...o.edit };
     img = o.source.bitmap;   // 메모리에 들고 있는 사진을 바로 쓴다 (다시 열지 않음)
-    look = { ...(o.look || { id: 'none', amount: 1 }) };
-    initLook = { ...look };
+    look = cloneLook(o.look);
+    initLook = cloneLook(o.look);
     applyAll = false;
     rulerBase = null;
+    activeAdj = 'exp';
     base = makeBase(img, o.source);
     dispImg = document.createElement('canvas');
     dispImg.width = base.width;
@@ -509,13 +569,16 @@ const Editor = (() => {
     $('editorNext').hidden = !(o.filledCount > 1 && o.onStep);
     $('editorDup').hidden = !o.canDuplicate;
     syncFilterUI();
+    syncAdjustUI();
     $('editorTitle').textContent = o.title;
-    $('editorHint').textContent = isFinePointer() ? '휠: 확대 · 끌기: 이동' : '한 손가락 이동 · 두 손가락 확대·회전';
+    $('editorHint').textContent = isFinePointer() ? '휠: 확대 · 끌기: 이동' : '한 손가락 이동 · 두 손가락 확대';
     $('zoomRow').hidden = !isFinePointer();
+    $('adjustPanel').hidden = true;
     $('rotatePanel').hidden = true;
     document.querySelector('.filter-panel').hidden = false;
-    rotateMode = false;
+    panelMode = 'filter';
     $('editorRotate').classList.remove('on');
+    $('editorAdjust').classList.toggle('on', hasAdjust(look.adj));
     $('editor').hidden = false;
     document.body.classList.add('editing');
     layoutStage();
@@ -546,7 +609,9 @@ const Editor = (() => {
     const o = opts;
     const result = clampEdit({ ...edit, angle: snapAngle(edit.angle) }, o.source, pxW, pxH);
     const changed = !sameEdit(result, initEdit) || !sameLook(look, initLook) || applyAll;
-    const nextLook = { ...look };
+    const nextLook = hasAdjust(look.adj)
+      ? { id: look.id, amount: look.amount, adj: { ...look.adj } }
+      : { id: look.id, amount: look.amount };
     const all = applyAll;
     close();
     if (changed || alwaysCall) cb(o, result, nextLook, all, changed);
@@ -583,8 +648,22 @@ const Editor = (() => {
       $('filterAmountValue').textContent = e.target.value;
       scheduleRefresh();
     });
+    buildAdjustStrip();
     $('applyAllBtn').addEventListener('click', () => { applyAll = !applyAll; syncFilterUI(); });
-    $('editorRotate').addEventListener('click', () => setRotateMode(!rotateMode));
+    $('editorAdjust').addEventListener('click', () => setPanelMode(panelMode === 'adjust' ? 'filter' : 'adjust'));
+    $('editorRotate').addEventListener('click', () => setPanelMode(panelMode === 'rotate' ? 'filter' : 'rotate'));
+    $('adjustRange').addEventListener('input', (e) => {
+      look = { ...look, adj: { ...look.adj, [activeAdj]: Number(e.target.value) } };
+      syncAdjustUI();
+      scheduleRefresh();
+    });
+    $('adjustVal').addEventListener('click', () => {
+      if (!look || !(look.adj && look.adj[activeAdj])) return;
+      look = { ...look, adj: { ...look.adj, [activeAdj]: 0 } };
+      syncAdjustUI();
+      refreshPreview();
+      draw();
+    });
     $('angleValue').addEventListener('click', () => {
       rulerBase = null;
       const base = Math.round(edit.angle / QUARTER) * QUARTER;

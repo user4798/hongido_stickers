@@ -215,7 +215,7 @@ function dataUrlToBytes(dataUrl) {
 }
 
 // 아이폰 사파리 공유 창은 클릭 직후 동기 호출이 필요하므로 toDataURL로 동기 합성한다
-function buildCollagePdf(preset, layout, cells, state) {
+function renderCollageJpeg(preset, layout, cells, state) {
   const pxW = mmToPx(preset.paper.w);
   const pxH = mmToPx(preset.paper.h);
   const canvas = document.createElement('canvas');
@@ -282,8 +282,20 @@ function buildCollagePdf(preset, layout, cells, state) {
 
   const bytes = dataUrlToBytes(canvas.toDataURL('image/jpeg', 0.94));
   freeCanvas(canvas);
+  return { bytes, pxW, pxH };
+}
 
+function buildCollagePdf(preset, layout, cells, state) {
+  const { bytes, pxW, pxH } = renderCollageJpeg(preset, layout, cells, state);
   const doc = new PdfDoc(preset.paper.w, preset.paper.h);
   doc.image(bytes, pxW, pxH, 0, 0, preset.paper.w, preset.paper.h);
   return doc.toBlob();
+}
+
+function buildCollageImageFile(preset, layout, cells, state) {
+  const { bytes } = renderCollageJpeg(preset, layout, cells, state);
+  const mon = String(state.monthText || '').replace(/[^a-zA-Z0-9가-힣]/g, '');
+  const yr = String(state.year || '').replace(/\D/g, '');
+  const tag = [mon, yr].filter(Boolean).join('_') || 'collage';
+  return new File([bytes], `${preset.label}_${tag}.jpg`, { type: 'image/jpeg' });
 }
