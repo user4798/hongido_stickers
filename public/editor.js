@@ -6,7 +6,9 @@ const Editor = (() => {
   let opts = null;          // openEditor에 넘긴 값
   let img = null;           // 보관용 사진
   let base = null;          // 화면용으로 줄인 사진 (필터 미리 보기의 바탕)
-  let dispImg = null;       // 필터를 입힌 화면용 사진
+  let dispImg = null;       // 필터를 입힌 화면용 사진 (재사용해 캔버스 메모리 절약)
+  let dispCtx = null;
+  let stripToken = 0;       // 비동기 필터 썸네일 그리기 취소용 번호
   let look = null;          // 지금 필터 { id, amount }
   let applyAll = false;     // '모든 칸에 적용'
   let edit = null;          // 지금 편집값
@@ -293,52 +295,71 @@ const Editor = (() => {
     return c;
   }
 
-  // 화면용 사진에 지금 필터를 입힌다 (색만, 입자·선명도는 인쇄용에만)
+  // 화면용 사진에 지금 필터를 입힌다 (캔버스 1개를 재사용해 아이폰 메모리 부담 제거)
   function refreshPreview() {
-    if (!base) return;
-    const c = document.createElement('canvas');
-    c.width = base.width;
-    c.height = base.height;
-    const cctx = c.getContext('2d', { willReadFrequently: true });
-    cctx.drawImage(base, 0, 0);
-    applyLook(cctx, c.width, c.height, look, printFixEnabled(), 'preview');
-    dispImg = c;
+    if (!base || !dispImg) return;
+    dispCtx.drawImage(base, 0, 0);
+    applyLook(dispCtx, dispImg.width, dispImg.height, look, printFixEnabled(), 'preview');
   }
 
   let refreshPending = false;
   function scheduleRefresh() {
     if (refreshPending) return;
     refreshPending = true;
-    setTimeout(() => { refreshPending = false; refreshPreview(); draw(); }, 30);
+    requestAnimationFrame(() => {
+      refreshPending = false;
+      if (!opts) return;
+      refreshPreview();
+      draw();
+    });
   }
 
-  // 필터 줄: 이 칸의 지금 구도로 만든 작은 미리 보기
+  // 필터 줄 뼈대만 먼저 만들어 높이를 확정한 뒤, 썸네일은 다음 프레임에 나눠 그린다 (열릴 때 멈칫거림 방지)
   function buildStrip() {
     const strip = $('filterStrip');
+    strip.querySelectorAll('canvas').forEach(freeCanvas);
     strip.innerHTML = '';
     const tw = 54;
     const th = Math.round(tw * pxH / pxW);
-    FILTERS.forEach((f) => {
+    const items = FILTERS.map((f) => {
       const btn = document.createElement('button');
       btn.className = 'filter-thumb';
       btn.dataset.id = f.id;
       const c = document.createElement('canvas');
       c.width = tw * 2;
       c.height = th * 2;
-      const cctx = c.getContext('2d', { willReadFrequently: true });
-      cctx.fillStyle = '#fff';
-      cctx.fillRect(0, 0, c.width, c.height);
-      cctx.save();
-      cctx.scale(c.width / pxW, c.height / pxH);
-      drawEdited(cctx, base, opts.source, edit);
-      cctx.restore();
-      applyLook(cctx, c.width, c.height, { id: f.id, amount: f.defaultAmount ?? 1 }, printFixEnabled(), 'preview');
       const label = document.createElement('span');
       label.textContent = f.name;
       btn.append(c, label);
       btn.addEventListener('click', () => onFilterTap(f.id));
       strip.appendChild(btn);
+      return { f, c };
     });
+
+    const token = ++stripToken;
+    const snapshotEdit = { ...edit };
+    const snapshotSource = opts.source;
+    const printFix = printFixEnabled();
+    let idx = 0;
+
+    const paintNext = () => {
+      if (token !== stripToken || !opts || !base) return;
+      // 한 프레임에 2개씩 그려서 화면이 멈추지 않게 한다
+      const end = Math.min(items.length, idx + 2);
+      for (; idx < end; idx++) {
+        const { f, c } = items[idx];
+        const cctx = c.getContext('2d', { willReadFrequently: true });
+        cctx.fillStyle = '#fff';
+        cctx.fillRect(0, 0, c.width, c.height);
+        cctx.save();
+        cctx.scale(c.width / pxW, c.height / pxH);
+        drawEdited(cctx, base, snapshotSource, snapshotEdit);
+        cctx.restore();
+        applyLook(cctx, c.width, c.height, { id: f.id, amount: f.defaultAmount ?? 1 }, printFix, 'preview');
+      }
+      if (idx < items.length) requestAnimationFrame(paintNext);
+    };
+    requestAnimationFrame(paintNext);
   }
 
   function onFilterTap(id) {
@@ -451,7 +472,20 @@ const Editor = (() => {
 
   // ---------- 열기·닫기 ----------
 
+  function releaseTempCanvases() {
+    stripToken++;
+    if (base) { freeCanvas(base); base = null; }
+    if (dispImg) { freeCanvas(dispImg); dispImg = null; }
+    dispCtx = null;
+    const strip = $('filterStrip');
+    if (strip) {
+      strip.querySelectorAll('canvas').forEach(freeCanvas);
+      strip.innerHTML = '';
+    }
+  }
+
   async function open(o) {
+    releaseTempCanvases();
     opts = o;
     ({ pxW, pxH } = cellPx(o.cell));
     edit = { ...o.edit };
@@ -462,6 +496,10 @@ const Editor = (() => {
     applyAll = false;
     rulerBase = null;
     base = makeBase(img, o.source);
+    dispImg = document.createElement('canvas');
+    dispImg.width = base.width;
+    dispImg.height = base.height;
+    dispCtx = dispImg.getContext('2d', { willReadFrequently: true });
     refreshPreview();
     buildStrip();
     $('applyAllBtn').hidden = !(o.filledCount > 1);
@@ -486,9 +524,8 @@ const Editor = (() => {
     rulerBase = null;
     $('editor').hidden = true;
     document.body.classList.remove('editing');
+    releaseTempCanvases();
     img = null;
-    base = null;
-    dispImg = null;
     initEdit = null;
     initLook = null;
     opts = null;

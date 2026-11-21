@@ -157,30 +157,42 @@ function hueAdjust(r, g, b, rules) {
 // 픽셀마다 계산하면 느려서, 색 공간을 33×33×33 칸으로 나눠 미리 계산해 두고
 // 그 사이 값은 주변 8칸을 섞어(삼선형 보간) 구한다.
 const LUT_N = 33;
+const LUT_LEN = LUT_N * LUT_N * LUT_N * 3;
 const lutCache = new Map();
+let blendBuf = null;   // 강도 조절 시 새 배열을 만들지 않고 재사용
 
-function colorTable(f, amount, printFix) {
-  const key = `${f ? f.id : 'none'}|${amount.toFixed(2)}|${printFix ? 1 : 0}`;
+// 필터 100% 기준(또는 원본)의 색 보정표만 한 번 만들어 보관한다
+function fullTable(f, printFix) {
+  const key = `${f ? f.id : 'none'}|${printFix ? 1 : 0}`;
   if (lutCache.has(key)) return lutCache.get(key);
   const N = LUT_N;
-  const t = new Float32Array(N * N * N * 3);
+  const t = new Float32Array(LUT_LEN);
   let k = 0;
   for (let bi = 0; bi < N; bi++) {
     for (let gi = 0; gi < N; gi++) {
       for (let ri = 0; ri < N; ri++) {
         let r = ri / (N - 1), g = gi / (N - 1), b = bi / (N - 1);
-        if (f) {
-          const [fr, fg, fb] = grade(r, g, b, f);
-          r += (fr - r) * amount; g += (fg - g) * amount; b += (fb - b) * amount;
-        }
+        if (f) [r, g, b] = grade(r, g, b, f);
         if (printFix) [r, g, b] = grade(r, g, b, PRINT_FIX);
         t[k++] = r; t[k++] = g; t[k++] = b;
       }
     }
   }
-  if (lutCache.size > 40) lutCache.clear();
   lutCache.set(key, t);
   return t;
+}
+
+// 강도(amount)가 바뀌어도 33³ 색 계산을 다시 하지 않고, 원본 표와 100% 표 사이만 비율로 섞는다
+function colorTable(f, amount, printFix) {
+  if (!f || amount <= 0) return fullTable(null, printFix);
+  const t1 = fullTable(f, printFix);
+  if (amount >= 1) return t1;
+  const t0 = fullTable(null, printFix);
+  if (!blendBuf) blendBuf = new Float32Array(LUT_LEN);
+  for (let k = 0; k < LUT_LEN; k++) {
+    blendBuf[k] = t0[k] + (t1[k] - t0[k]) * amount;
+  }
+  return blendBuf;
 }
 
 function lookup(t, R, G, B, out) {
@@ -245,17 +257,19 @@ function applyLook(ctx, w, h, look, printFix, mode) {
   const grain = isPrint && useFilter ? (f.grain || 0) * amount : 0;
   const vig = isPrint && useFilter ? (f.vignette || 0) * amount : 0;
   const cx = w / 2, cy = h / 2;
-  const maxR = Math.hypot(cx, cy);
+  const invMaxR2 = 1 / (cx * cx + cy * cy || 1);
   const lut = colorTable(useFilter ? f : null, amount, printFix);
-  const out = [0, 0, 0];
   const N1 = LUT_N - 1, K = N1 / 255, NN = LUT_N * LUT_N, N3 = LUT_N * 3, NN3 = NN * 3;
   // 색 단계 나누기: 보정표는 경계를 부드럽게 섞으므로, 단계는 표를 거친 뒤 따로 끊는다
   const steps = useFilter && f.posterize ? f.posterize - 1 : 0;
 
   for (let y = 0; y < h; y++) {
+    const dy = y - cy;
+    const dy2 = dy * dy;
+    const rowOff = y * w;
     for (let x = 0; x < w; x++) {
-      const i = (y * w + x) * 4;
-      // 색 보정표에서 찾기 (lookup과 같은 계산을 빠르게 하려고 풀어 씀)
+      const i = (rowOff + x) * 4;
+      // 색 보정표에서 찾기 (r·g·b를 바로 풀어 계산해 반복문·배열 비용 제거)
       const fr = d[i] * K, fg = d[i + 1] * K, fb = d[i + 2] * K;
       const r0 = fr | 0, g0 = fg | 0, b0 = fb | 0;
       const dr = fr - r0, dg = fg - g0, db = fb - b0;
@@ -263,22 +277,35 @@ function applyLook(ctx, w, h, look, printFix, mode) {
       const p000 = (b0 * NN + g0 * LUT_N + r0) * 3;
       const p100 = p000 + sr, p010 = p000 + sg, p110 = p010 + sr;
       const p001 = p000 + sb, p101 = p001 + sr, p011 = p001 + sg, p111 = p011 + sr;
-      for (let c = 0; c < 3; c++) {
-        const c00 = lut[p000 + c] + (lut[p100 + c] - lut[p000 + c]) * dr;
-        const c10 = lut[p010 + c] + (lut[p110 + c] - lut[p010 + c]) * dr;
-        const c01 = lut[p001 + c] + (lut[p101 + c] - lut[p001 + c]) * dr;
-        const c11 = lut[p011 + c] + (lut[p111 + c] - lut[p011 + c]) * dr;
-        const c0 = c00 + (c10 - c00) * dg;
-        out[c] = c0 + (c01 + (c11 - c01) * dg - c0) * db;
-      }
-      let r = out[0], g = out[1], b = out[2];
+
+      const r00 = lut[p000] + (lut[p100] - lut[p000]) * dr;
+      const r10 = lut[p010] + (lut[p110] - lut[p010]) * dr;
+      const r01 = lut[p001] + (lut[p101] - lut[p001]) * dr;
+      const r11 = lut[p011] + (lut[p111] - lut[p011]) * dr;
+      const rc0 = r00 + (r10 - r00) * dg;
+      let r = rc0 + (r01 + (r11 - r01) * dg - rc0) * db;
+
+      const g00 = lut[p000 + 1] + (lut[p100 + 1] - lut[p000 + 1]) * dr;
+      const g10 = lut[p010 + 1] + (lut[p110 + 1] - lut[p010 + 1]) * dr;
+      const g01 = lut[p001 + 1] + (lut[p101 + 1] - lut[p001 + 1]) * dr;
+      const g11 = lut[p011 + 1] + (lut[p111 + 1] - lut[p011 + 1]) * dr;
+      const gc0 = g00 + (g10 - g00) * dg;
+      let g = gc0 + (g01 + (g11 - g01) * dg - gc0) * db;
+
+      const b00 = lut[p000 + 2] + (lut[p100 + 2] - lut[p000 + 2]) * dr;
+      const b10 = lut[p010 + 2] + (lut[p110 + 2] - lut[p010 + 2]) * dr;
+      const b01 = lut[p001 + 2] + (lut[p101 + 2] - lut[p001 + 2]) * dr;
+      const b11 = lut[p011 + 2] + (lut[p111 + 2] - lut[p011 + 2]) * dr;
+      const bc0 = b00 + (b10 - b00) * dg;
+      let b = bc0 + (b01 + (b11 - b01) * dg - bc0) * db;
+
       if (steps) {
         const pr = Math.round(r * steps) / steps, pg = Math.round(g * steps) / steps, pb = Math.round(b * steps) / steps;
         r += (pr - r) * amount; g += (pg - g) * amount; b += (pb - b) * amount;
       }
       if (vig) {
-        const t = Math.hypot(x - cx, y - cy) / maxR;
-        const k = 1 - vig * t * t;
+        const dx = x - cx;
+        const k = 1 - vig * (dx * dx + dy2) * invMaxR2;
         r *= k; g *= k; b *= k;
       }
       if (grain) {

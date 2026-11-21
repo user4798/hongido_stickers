@@ -1,5 +1,5 @@
 // sw.js — 서비스 워커: 앱 파일을 기기에 보관해 두고, 인터넷이 없거나 느려도 앱이 열리게 한다.
-// 방식: 먼저 인터넷에서 새 파일을 받아 보고(3초까지), 안 되면 보관해 둔 파일을 쓴다.
+// 방식: 먼저 인터넷에서 새 파일을 받아 보고(1.5초까지), 안 되면 보관해 둔 파일을 쓴다.
 //       그래서 배포하면 다음에 열 때 새 버전이 바로 보이고, 오프라인에서는 마지막 버전이 열린다.
 // 사진은 여기서 다루지 않는다 (사진은 기기 안 IndexedDB에만 있다).
 
@@ -25,7 +25,7 @@ self.addEventListener('activate', (e) => {
 
 function fromNetwork(request) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('timeout')), 3000);
+    const timer = setTimeout(() => reject(new Error('timeout')), 1500);
     fetch(request).then((res) => {
       clearTimeout(timer);
       if (res && res.ok) {

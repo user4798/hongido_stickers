@@ -42,7 +42,12 @@ function sourceMaxFor(cell) {
   return Math.min(PHOTO.sourceMaxPx, Math.max(pxW, pxH) * PHOTO.maxZoom);
 }
 
-async function loadSource(file, maxPx = PHOTO.sourceMaxPx) {
+let fileIdSeq = 0;
+function makeFileId() {
+  return `${Date.now().toString(36)}-${(++fileIdSeq).toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+async function loadSource(file, maxPx = PHOTO.sourceMaxPx, fileId = null) {
   const img = await loadImage(file);
   const w0 = img.naturalWidth;
   const h0 = img.naturalHeight;
@@ -59,7 +64,7 @@ async function loadSource(file, maxPx = PHOTO.sourceMaxPx) {
   if (window.createImageBitmap) {
     try { bitmap = await createImageBitmap(canvas); freeCanvas(canvas); } catch (e) { bitmap = canvas; }
   }
-  return { file, bitmap, w, h, maxPx };
+  return { file, fileId: fileId || makeFileId(), bitmap, w, h, maxPx };
 }
 
 function releaseSource(source) {

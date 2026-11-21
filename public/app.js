@@ -50,21 +50,27 @@ function setBusy(on, text = '') {
 // ---------- 칸 채우기 ----------
 
 // 칸 사진 만들기: 미리 보기가 나오면 바로 칸에 보여 주고, 인쇄용 JPEG는 뒤에서 기다린다
-async function setCellPhoto(index, source, edit, look = NO_LOOK) {
+async function setCellPhoto(index, source, edit, look = NO_LOOK, save = true) {
   const job = renderCell(source, edit, layout.cells[index], look);
   const preview = await job.preview;
   const old = cells[index];
-  if (old && old.source !== source) releaseSource(old.source);
+  if (old) {
+    if (old.preview) freeCanvas(old.preview);
+    if (old.source !== source) releaseSource(old.source);
+  }
   const entry = { source, edit, look, preview, print: null, ready: null };
   entry.ready = job.done.then((p) => { entry.print = p; return p; });
   entry.ready.catch(() => {});
   cells[index] = entry;
-  scheduleSave();
+  if (save) scheduleSave();
 }
 
 function clearCell(index) {
   const c = cells[index];
-  if (c) releaseSource(c.source);
+  if (c) {
+    if (c.preview) freeCanvas(c.preview);
+    releaseSource(c.source);
+  }
   cells[index] = null;
   scheduleSave();
 }
@@ -78,9 +84,8 @@ function saveNow() {
   clearTimeout(saveTimer);
   saveTimer = 0;
   Store.save({
-    v: 1,
     presetId,
-    cells: cells.map((c) => (c && c.source.file ? { file: c.source.file, edit: c.edit, look: c.look } : null)),
+    cells: cells.map((c) => (c && c.source.file ? { fileId: c.source.fileId, file: c.source.file, edit: c.edit, look: c.look } : null)),
     used,
     lastPrinted,
   });
@@ -90,6 +95,12 @@ function scheduleSave() {
   if (restoring) return;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(saveNow, 400);
+}
+
+// 다음 사진을 미리 읽어 두어(파이프라이닝) 워커 처리와 겹쳐 빠르게 불러온다
+function loadSourceSafe(file, cell, fileId = null) {
+  return loadSource(file, sourceMaxFor(cell), fileId)
+    .then((src) => ({ ok: true, src }), (err) => ({ ok: false, err }));
 }
 
 // 지난번 작업을 그대로 되살린다
@@ -115,15 +126,23 @@ async function restore() {
   render();
   restoring = true;
   setBusy(true, '지난 작업 불러오는 중');
-  const list = saved.cells.slice(0, cells.length);
-  for (let i = 0; i < list.length; i++) {
-    const item = list[i];
-    if (!item || !item.file) continue;
-    cellButton(i).classList.add('loading');
-    try {
-      const src = await loadSource(item.file, sourceMaxFor(layout.cells[i]));
-      await setCellPhoto(i, src, item.edit || defaultEdit(src, layout.cells[i]), item.look || NO_LOOK);
-    } catch (e) { /* 이 사진은 건너뜀 */ }
+  const items = saved.cells
+    .slice(0, cells.length)
+    .map((item, i) => (item && item.file ? { i, item } : null))
+    .filter(Boolean);
+  items.forEach(({ i }) => cellButton(i).classList.add('loading'));
+  let pending = items.length ? loadSourceSafe(items[0].item.file, layout.cells[items[0].i], items[0].item.fileId) : null;
+  for (let k = 0; k < items.length; k++) {
+    const { i, item } = items[k];
+    const loaded = await pending;
+    pending = k + 1 < items.length
+      ? loadSourceSafe(items[k + 1].item.file, layout.cells[items[k + 1].i], items[k + 1].item.fileId)
+      : null;
+    if (loaded.ok) {
+      try {
+        await setCellPhoto(i, loaded.src, item.edit || defaultEdit(loaded.src, layout.cells[i]), item.look || NO_LOOK, false);
+      } catch (e) { releaseSource(loaded.src); }
+    }
     cellButton(i).classList.remove('loading');
     render();
   }
@@ -141,7 +160,11 @@ function remainingAfterPrint() {
 }
 
 function clearPhotos() {
-  cells.forEach((c) => c && releaseSource(c.source));
+  cells.forEach((c) => {
+    if (!c) return;
+    if (c.preview) freeCanvas(c.preview);
+    releaseSource(c.source);
+  });
   cells = layout.cells.map(() => null);
 }
 
@@ -188,9 +211,11 @@ async function rerenderAll() {
   const filled = cells.map((c, i) => (c ? i : -1)).filter((i) => i >= 0);
   if (!filled.length) return;
   setBusy(true, '다시 만드는 중');
-  for (const i of filled) {
+  for (let k = 0; k < filled.length; k++) {
+    const i = filled[k];
+    if (filled.length > 1) $('busyText').textContent = `다시 만드는 중 ${k + 1} / ${filled.length}`;
     const c = cells[i];
-    await setCellPhoto(i, c.source, c.edit, c.look);
+    await setCellPhoto(i, c.source, c.edit, c.look, false);
     render();
   }
   setBusy(false);
@@ -212,20 +237,29 @@ async function addFiles(files, slots) {
   slots.slice(0, list.length).forEach((i) => cellButton(i).classList.add('loading'));
   render();
   let failed = 0;
+  let pending = list.length ? loadSourceSafe(list[0], layout.cells[slots[0]]) : null;
 
   for (let k = 0; k < list.length; k++) {
     if (list.length > 1) $('busyText').textContent = `사진 넣는 중 ${k + 1} / ${list.length}`;
     const cell = layout.cells[slots[k]];
-    try {
-      const source = await loadSource(list[k], sourceMaxFor(cell));
-      await setCellPhoto(slots[k], source, defaultEdit(source, cell));
-    } catch (e) {
+    const loaded = await pending;
+    // 현재 사진을 워커에서 그리는 동안 다음 사진을 미리 읽는다
+    pending = k + 1 < list.length ? loadSourceSafe(list[k + 1], layout.cells[slots[k + 1]]) : null;
+    if (loaded.ok) {
+      try {
+        await setCellPhoto(slots[k], loaded.src, defaultEdit(loaded.src, cell), NO_LOOK, false);
+      } catch (e) {
+        releaseSource(loaded.src);
+        failed++;
+      }
+    } else {
       failed++;
     }
     cellButton(slots[k]).classList.remove('loading');
     render();
   }
 
+  scheduleSave();
   const skipped = files.length - list.length;
   const notes = [];
   if (skipped > 0) notes.push(`빈 칸이 ${slots.length}개라 ${skipped}장은 넣지 못했어요`);
@@ -245,10 +279,11 @@ async function applyEdit(index, edit, look, applyAll) {
   targets.forEach((i) => cellButton(i).classList.add('loading'));
   for (const i of targets) {
     const ci = cells[i];
-    await setCellPhoto(i, ci.source, i === index ? edit : ci.edit, look);
+    await setCellPhoto(i, ci.source, i === index ? edit : ci.edit, look, false);
     cellButton(i).classList.remove('loading');
     render();
   }
+  scheduleSave();
   setBusy(false);
   render();
   if (applyAll && targets.length > 1) toast(`${targets.length}칸에 ${findFilter(look.id).name} 적용`);
@@ -534,6 +569,7 @@ async function switchPreset(id) {
     if (!ok) return;
   }
   closeSheet('presetMenu');
+  kept.forEach((c) => c.preview && freeCanvas(c.preview));
   kept.slice(room).forEach((c) => releaseSource(c.source));
   presetId = id;
   preset = next;
@@ -554,16 +590,16 @@ async function switchPreset(id) {
     move.forEach((_, i) => cellButton(i).classList.add('loading'));
     for (let i = 0; i < move.length; i++) {
       let src = move[i].source;
-      // 새 칸이 더 큰 사진을 필요로 하면 원본 파일에서 다시 만든다
+      // 새 칸이 더 큰 사진을 필요로 하면 원본 파일에서 다시 만든다 (fileId는 유지해 재저장 방지)
       const need = sourceMaxFor(layout.cells[i]);
       if (need > src.maxPx && src.file) {
         try {
-          const fresh = await loadSource(src.file, need);
+          const fresh = await loadSource(src.file, need, src.fileId);
           releaseSource(src);
           src = fresh;
         } catch (e) { /* 실패하면 있던 크기로 */ }
       }
-      await setCellPhoto(i, src, defaultEdit(src, layout.cells[i]), move[i].look);
+      await setCellPhoto(i, src, defaultEdit(src, layout.cells[i]), move[i].look, false);
       cellButton(i).classList.remove('loading');
       render();
     }
@@ -698,7 +734,7 @@ function showSwapPreview(from, to) {
 }
 
 function removeSwapPreview() {
-  document.querySelectorAll('.swap-preview').forEach((c) => c.remove());
+  document.querySelectorAll('.swap-preview').forEach((c) => { freeCanvas(c); c.remove(); });
 }
 
 function cancelDrag() {
@@ -706,7 +742,7 @@ function cancelDrag() {
   removeSwapPreview();
   clearTimeout(drag.timer);
   const wasActive = drag.active;
-  if (drag.ghost) drag.ghost.remove();
+  if (drag.ghost) { freeCanvas(drag.ghost); drag.ghost.remove(); }
   document.querySelectorAll('.cell.lifted, .cell.drop-target').forEach((b) => b.classList.remove('lifted', 'drop-target'));
   drag = null;
   if (wasActive) {
