@@ -183,6 +183,42 @@ input { -webkit-user-select: text; user-select: text; }
 .cut { position: absolute; display: none; border-radius: 2px; box-shadow: 0 0 0 60px rgba(0, 0, 0, 0.28); pointer-events: none; z-index: 1; }
 .cell.filled .cut { display: block; }
 
+/* 이미 인쇄해서 쓴 칸: 옅은 회색 빗금 + '사용함' */
+.cell.used {
+  border: 1px solid #ddd8d0;
+  background: repeating-linear-gradient(135deg, #ebe7e0 0 3px, #f6f3ee 3px 8px);
+  color: #8e8e93;
+}
+.cell.used svg { display: none; }
+.cell.used::before { content: "사용함"; font-size: 10px; font-weight: 600; letter-spacing: 0.04em; }
+
+/* 표시하기 중: 표시할 수 있는 칸을 강조 */
+.paper.marking .cell:not(.filled) { border: 1.5px dashed var(--accent); }
+.paper.marking .cell.used { border-style: solid; }
+.mark-banner {
+  margin: 0 4px 6px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: #ffb3c0;
+  font-size: 13px;
+  text-align: center;
+}
+.mark-banner[hidden] { display: none; }
+
+/* 창 안의 보조 버튼 */
+.link-btn {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 10px;
+  color: var(--text-2);
+  font-size: 14px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.link-btn[hidden] { display: none; }
+
 /* 끌어서 옮기기 */
 .paper { touch-action: none; }   /* 길게 눌러 끌 때 화면이 대신 움직이지 않게 */
 .drag-ghost {

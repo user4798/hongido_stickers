@@ -41,6 +41,7 @@
       </span>
     </div>
 
+    <p class="mark-banner" id="markBanner" hidden>이미 인쇄한 칸을 눌러 표시하세요</p>
     <div class="stage" id="stage">
       <div id="paper" class="paper">
         <p class="empty-hint" id="emptyHint">칸을 눌러 사진을 고르세요</p>
@@ -142,6 +143,18 @@
       <h2 id="presetTitle">용지 고르기</h2>
       <p class="panel-sub">가지고 있는 용지에 맞춰 칸이 바뀌어요</p>
       <div id="presetList" class="preset-list"></div>
+      <button id="markFromMenu" class="link-btn">이미 쓴 칸 표시하기</button>
+    </div>
+  </div>
+
+  <!-- 남은 칸 이어 쓰기 -->
+  <div id="continueSheet" class="overlay" hidden>
+    <div class="panel" role="dialog" aria-labelledby="continueTitle">
+      <div class="grabber"></div>
+      <h2 id="continueTitle"></h2>
+      <p class="panel-sub">같은 용지를 다시 넣어 남은 칸에만 인쇄할 수 있어요</p>
+      <button id="continueGo" class="accent-btn">남은 칸 이어 쓰기</button>
+      <button id="continueFresh" class="link-btn">새 용지로 시작</button>
     </div>
   </div>
 
@@ -154,11 +167,13 @@
       <div class="checklist">
         <div class="row"><span data-icon="paper"></span><span class="row-label">용지 크기</span><b id="pfPaper"></b></div>
         <div class="row"><span data-icon="scale"></span><span class="row-label">배율</span><b id="pfScale"></b></div>
+        <div class="row" id="pfUsedRow" hidden><span data-icon="paper"></span><span class="row-label">인쇄할 칸</span><b id="pfUsed"></b></div>
         <div class="row" id="pfFeedRow"><span data-icon="arrowUp"></span><span class="row-label">용지 방향</span><b>화살표가 프린터 안쪽</b></div>
       </div>
       <p class="panel-note" id="pfNote"></p>
       <button id="preflightGo" class="accent-btn">확인하고 인쇄</button>
       <label class="check"><input id="skipPreflight" type="checkbox"><span>다음부터 바로 인쇄</span></label>
+      <button id="pfMarkBtn" class="link-btn">일부 쓴 용지인가요? 이미 쓴 칸 표시하기</button>
     </div>
   </div>
 </body>

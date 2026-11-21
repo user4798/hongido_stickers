@@ -64,7 +64,7 @@ function setPresetId(id) {
 // 앱 버전 — 배포할 때마다 올린다 (큰 기능: 가운데 숫자, 고침: 끝 숫자)
 const APP = {
   name: 'Hongido Stickers',
-  version: '1.0.11',
+  version: '1.1.0',
   date: '2026-11-21',
   maker: 'Seoulrain',        // 서울비
 };
