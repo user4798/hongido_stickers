@@ -676,51 +676,90 @@ async function switchPreset(id) {
   toast(`${next.menuTitle}로 바꿨어요`);
 }
 
+function resetSheetStyle(el) {
+  if (!el) return;
+  clearTimeout(el._closeTimer);
+  el._closeTimer = 0;
+  el.style.background = '';
+  el.style.transition = '';
+  const panel = el.querySelector('.panel');
+  if (panel) {
+    panel.style.transform = '';
+    panel.style.transition = '';
+  }
+}
+
 function openSheet(id) {
   const el = $(id);
-  const panel = el && el.querySelector('.panel');
-  if (panel) { panel.style.transform = ''; panel.style.transition = ''; }
+  resetSheetStyle(el);
   el.hidden = false;
 }
 
 function closeSheet(id) {
   const el = $(id);
-  const panel = el && el.querySelector('.panel');
-  if (panel) { panel.style.transform = ''; panel.style.transition = ''; }
+  resetSheetStyle(el);
   el.hidden = true;
 }
 
 // 아래에서 올라오는 창을 손가락으로 아래로 쓸어내려 닫기
+// 아이폰 사파리가 당겨서 새로고침으로 가로채지 않도록 touchmove를 막고 패널만 움직인다.
 function bindSheetSwipe(id) {
   const overlay = $(id);
   const panel = overlay && overlay.querySelector('.panel');
   if (!panel) return;
   let s = null;
+  let suppressClickUntil = 0;
+
+  overlay.addEventListener('touchmove', (e) => { e.preventDefault(); }, { passive: false });
+  panel.addEventListener('click', (e) => {
+    if (performance.now() < suppressClickUntil) { e.stopPropagation(); e.preventDefault(); }
+  }, true);
+
   panel.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('input, select, textarea')) return;
-    if (panel.scrollTop > 0) return;
-    s = { id: e.pointerId, y0: e.clientY, dy: 0, dragging: false };
+    clearTimeout(overlay._closeTimer);
+    overlay._closeTimer = 0;
+    s = { id: e.pointerId, y0: e.clientY, lastY: e.clientY, lastT: performance.now(), vy: 0, dy: 0, dragging: false };
   });
   panel.addEventListener('pointermove', (e) => {
     if (!s || e.pointerId !== s.id) return;
     const dy = e.clientY - s.y0;
+    const now = performance.now();
+    const dt = now - s.lastT;
+    if (dt > 0) s.vy = (e.clientY - s.lastY) / dt;
+    s.lastY = e.clientY;
+    s.lastT = now;
+
     if (!s.dragging) {
-      if (dy < 10) return;
+      if (dy < 4) return;
       s.dragging = true;
       panel.style.transition = 'none';
+      overlay.style.transition = 'none';
       try { panel.setPointerCapture(s.id); } catch (err) { /* 무시 */ }
     }
     s.dy = Math.max(0, dy);
     panel.style.transform = `translateY(${s.dy}px)`;
+    const h = panel.offsetHeight || 300;
+    const alpha = Math.max(0, 0.55 * (1 - s.dy / h));
+    overlay.style.background = `rgba(0, 0, 0, ${alpha.toFixed(3)})`;
   });
   const end = (e) => {
     if (!s || e.pointerId !== s.id) return;
-    const { dragging, dy } = s;
+    const { dragging, dy, vy } = s;
     s = null;
     if (!dragging) return;
-    panel.style.transition = '';
-    panel.style.transform = '';
-    if (dy > 64) closeSheet(id);
+    suppressClickUntil = performance.now() + 300;
+    if (dy > 60 || (dy > 20 && vy > 0.45)) {
+      panel.style.transition = 'transform 0.16s ease-out';
+      overlay.style.transition = 'background 0.16s ease-out';
+      panel.style.transform = `translateY(${(panel.offsetHeight || 320) + 24}px)`;
+      overlay.style.background = 'rgba(0, 0, 0, 0)';
+      overlay._closeTimer = setTimeout(() => closeSheet(id), 170);
+    } else {
+      panel.style.transition = 'transform 0.2s ease-out';
+      overlay.style.transition = 'background 0.2s ease-out';
+      panel.style.transform = 'translateY(0)';
+      overlay.style.background = '';
+    }
   };
   panel.addEventListener('pointerup', end);
   panel.addEventListener('pointercancel', end);

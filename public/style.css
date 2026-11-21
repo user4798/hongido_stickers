@@ -30,7 +30,9 @@
 * { box-sizing: border-box; }
 
 html { background: var(--bg); }
+html:has(body.app) { overscroll-behavior: none; }
 body { background: var(--bg-glow), var(--bg); background-repeat: no-repeat; min-height: 100svh; }
+body.app { overscroll-behavior: none; overflow: hidden; }
 
 body {
   -webkit-user-select: none;
@@ -411,6 +413,8 @@ input { -webkit-user-select: text; user-select: text; }
   align-items: flex-end;
   justify-content: center;
   z-index: 10;
+  touch-action: none;
+  overscroll-behavior: none;
 }
 .overlay[hidden] { display: none; }
 
@@ -422,8 +426,11 @@ input { -webkit-user-select: text; user-select: text; }
   padding: 10px 16px calc(18px + var(--safe-b));
   animation: rise 0.22s ease-out;
   transition: transform 0.2s ease-out;
+  touch-action: none;
+  overscroll-behavior: none;
   --icon-cut: var(--surface);
 }
+.panel button, .panel a, .panel label { touch-action: none; }
 @keyframes rise { from { transform: translateY(24px); opacity: 0; } }
 
 .grabber { width: 36px; height: 4px; border-radius: 2px; background: #48484a; margin: 0 auto 14px; }
