@@ -20,6 +20,8 @@ const ICONS = {
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   chevron: '<path d="M7 10l5 5 5-5"/>',
   chevronRight: '<path d="M10 7l5 5-5 5"/>',
+  arrowUp: '<path d="M12 19V5"/><path d="M6.5 10.5L12 5l5.5 5.5"/>',
+  flip: '<line x1="12" y1="3.5" x2="12" y2="20.5" stroke-dasharray="2 2"/><path d="M9 7L3.5 17H9Z"/><path d="M15 7l5.5 10H15Z"/>',
   photoAdd: '<rect x="3.5" y="5" width="13" height="13" rx="2"/><path d="M3.5 15l3.6-3.6a1.2 1.2 0 0 1 1.7 0L13 15.6"/><circle cx="12.2" cy="9" r="1.2"/><line x1="19.5" y1="3" x2="19.5" y2="9"/><line x1="16.5" y1="6" x2="22.5" y2="6"/>',
   fit: '<path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9"/><path d="M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9"/>' +
     '<path d="M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15"/><path d="M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15"/>' +

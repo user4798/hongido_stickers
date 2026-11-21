@@ -181,6 +181,36 @@ input { -webkit-user-select: text; user-select: text; }
 .cut { position: absolute; display: none; border-radius: 2px; box-shadow: 0 0 0 60px rgba(0, 0, 0, 0.28); pointer-events: none; z-index: 1; }
 .cell.filled .cut { display: block; }
 
+/* 끌어서 옮기기 */
+.paper { touch-action: none; }   /* 길게 눌러 끌 때 화면이 대신 움직이지 않게 */
+.drag-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 60;
+  pointer-events: none;
+  border-radius: 3px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  transform-origin: 0 0;
+}
+.cell.lifted { opacity: 0.3; }
+.cell.drop-target { outline: 2.5px solid var(--accent); outline-offset: 2px; }
+.cell.drop-target::after {
+  content: attr(data-drop);
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  padding: 4px 9px;
+  border-radius: 99px;
+  background: var(--accent-fill);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .cell.loading { border-color: transparent; animation: shimmer 1s ease-in-out infinite alternate; }
 .cell.loading svg { display: none; }
 @keyframes shimmer {
@@ -213,9 +243,27 @@ input { -webkit-user-select: text; user-select: text; }
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.06em;
-  color: rgba(0, 0, 0, 0.22);
+  color: rgba(60, 175, 70, 0.55);   /* 실제 에이원 용지의 연두·형광 초록 인쇄처럼, 옅게 (화면에만) */
   pointer-events: none;
 }
+
+/* 용지 넣는 방향 (실제 용지 위쪽 가운데에 찍힌 화살표처럼, 화면에만) */
+.feed-mark {
+  position: absolute;
+  left: 50%;
+  top: 2.2%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: rgba(60, 175, 70, 0.6);
+  pointer-events: none;
+}
+.feed-mark[hidden] { display: none; }
+.feed-mark .icon { width: 12px; height: 12px; }
 
 .bottombar {
   position: fixed;
@@ -542,6 +590,57 @@ body.editing { overflow: hidden; }
 }
 .filter-thumb.on { color: var(--accent); font-weight: 600; }
 .filter-thumb.on canvas { outline-color: var(--accent); }
+
+/* 회전 도구: 각도 눈금 + 90° + 좌우 반전 */
+.rotate-panel { padding: 10px 16px 4px; border-top: 0.5px solid #1f1f22; }
+.rotate-panel[hidden] { display: none; }
+.angle-row { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.angle-value { font-family: var(--font-display); font-size: 15px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.angle-ruler {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 34px;
+  background:
+    linear-gradient(var(--text-2), var(--text-2)) center / 1.5px 18px no-repeat,
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.28) 0 1px, transparent 1px calc((100% - 1px) / 18)) center / 100% 10px no-repeat;
+  outline: none;
+}
+.angle-ruler::-webkit-slider-thumb { -webkit-appearance: none; width: 4px; height: 30px; border-radius: 2px; background: var(--accent); }
+.angle-ruler::-moz-range-thumb { width: 4px; height: 30px; border: none; border-radius: 2px; background: var(--accent); }
+.rotate-btns { display: flex; justify-content: center; gap: 10px; margin: 10px 0 6px; }
+.pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 99px;
+  background: var(--raised);
+  font-size: 14px;
+  --icon-cut: var(--raised);
+}
+.pill-btn .icon { width: 20px; height: 20px; }
+.pill-btn.on { color: var(--accent); background: var(--accent-soft); }
+.tool.on { color: var(--accent); }
+
+/* PC(마우스)에서만 보이는 확대 막대 */
+.zoom-row {
+  position: absolute;
+  left: 50%;
+  bottom: 64px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  border-radius: 99px;
+  background: rgba(44, 44, 46, 0.85);
+  font-size: 12px;
+  color: var(--text-2);
+}
+.zoom-row[hidden] { display: none; }
+.zoom-row input { width: 160px; accent-color: var(--accent); }
 
 .editor-tools {
   display: grid;

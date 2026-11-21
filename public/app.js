@@ -365,6 +365,8 @@ function applyPresetLabels() {
   $('pfScale').textContent = preset.printScale;
   if ($('calibRow')) $('calibRow').hidden = !preset.testSheet;
   $('sheetLabel').textContent = preset.sheetLabel || '';
+  $('feedMark').hidden = !preset.feedMark;
+  $('pfFeedRow').hidden = !preset.feedMark;
   $('pfNote').textContent = preset.printNote ? `${preset.printNote} '용지에 맞춤'은 꺼 주세요.` : "'용지에 맞춤'이 켜져 있으면 칸이 어긋나요.";
 }
 
@@ -466,8 +468,100 @@ function closeSheet(id) {
   $(id).hidden = true;
 }
 
+// ---------- 길게 눌러 끌어서 옮기기 · 바꾸기 ----------
+// 사진 칸을 0.3초 누르고 있으면 사진이 떠오르고, 다른 칸에 놓으면
+// 빈 칸이면 옮기고, 사진이 있으면 서로 바꾼다. 위치·확대·필터는 그대로 따라간다.
+
+const HOLD_MS = 300;
+let drag = null;
+let ignoreClickUntil = 0;
+
+function cellIndexAt(x, y) {
+  const els = $('paper').querySelectorAll('.cell');
+  for (let i = 0; i < els.length; i++) {
+    const r = els[i].getBoundingClientRect();
+    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return i;
+  }
+  return -1;
+}
+
+function sameSize(a, b) {
+  const A = layout.cells[a], B = layout.cells[b];
+  return A && B && A.w === B.w && A.h === B.h;
+}
+
+function onPaperDown(e) {
+  if (busy || drag || cells.length < 2) return;
+  const i = cellIndexAt(e.clientX, e.clientY);
+  if (i < 0 || !cells[i]) return;
+  drag = { from: i, id: e.pointerId, x0: e.clientX, y0: e.clientY, active: false, over: -1, ghost: null };
+  drag.timer = setTimeout(() => startDrag(e), HOLD_MS);
+}
+
+function startDrag(e) {
+  if (!drag) return;
+  drag.active = true;
+  const btn = cellButton(drag.from);
+  const r = btn.getBoundingClientRect();
+  const g = document.createElement('canvas');
+  g.width = Math.round(r.width * 2);
+  g.height = Math.round(r.height * 2);
+  g.getContext('2d').drawImage(cells[drag.from].preview, 0, 0, g.width, g.height);
+  g.className = 'drag-ghost';
+  g.style.width = `${r.width}px`;
+  g.style.height = `${r.height}px`;
+  drag.dx = drag.x0 - r.left;
+  drag.dy = drag.y0 - r.top;
+  g.style.transform = `translate(${r.left}px, ${r.top}px) scale(1.08)`;
+  document.body.appendChild(g);
+  drag.ghost = g;
+  btn.classList.add('lifted');
+  try { $('paper').setPointerCapture(drag.id); } catch (err) { /* 없어도 동작 */ }
+}
+
+function onPaperMove(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  if (!drag.active) {
+    // 누르고 바로 움직이면 끌기가 아니라 그냥 손가락이 미끄러진 것
+    if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) > 10) cancelDrag();
+    return;
+  }
+  drag.ghost.style.transform = `translate(${e.clientX - drag.dx}px, ${e.clientY - drag.dy}px) scale(1.08)`;
+  const over = cellIndexAt(e.clientX, e.clientY);
+  if (over !== drag.over) {
+    if (drag.over >= 0) cellButton(drag.over).classList.remove('drop-target');
+    drag.over = over >= 0 && over !== drag.from && sameSize(over, drag.from) ? over : -1;
+    if (drag.over >= 0) {
+      // 놓으면 무슨 일이 생기는지 미리 보여 준다: 사진이 있으면 '바꾸기', 비었으면 '옮기기'
+      const t = cellButton(drag.over);
+      t.dataset.drop = cells[drag.over] ? '바꾸기' : '옮기기';
+      t.classList.add('drop-target');
+    }
+  }
+}
+
+function onPaperUp(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  const { active, from, over } = drag;
+  cancelDrag();
+  if (!active) return;
+  ignoreClickUntil = performance.now() + 400;   // 놓는 순간의 '톡'이 편집 화면을 열지 않게
+  if (over < 0) return;
+  [cells[from], cells[over]] = [cells[over], cells[from]];
+  render();
+  scheduleSave();
+}
+
+function cancelDrag() {
+  if (!drag) return;
+  clearTimeout(drag.timer);
+  if (drag.ghost) drag.ghost.remove();
+  document.querySelectorAll('.cell.lifted, .cell.drop-target').forEach((b) => b.classList.remove('lifted', 'drop-target'));
+  drag = null;
+}
+
 function onCellTap(i) {
-  if (busy) return;
+  if (busy || performance.now() < ignoreClickUntil) return;
   targetCell = i;
   if (!cells[i]) {
     $('manyInput').click();   // 빈 칸: 여러 장 고르기 → 이 칸부터 채움
@@ -498,6 +592,10 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   $('printBtn').addEventListener('click', onMainButton);
+  $('paper').addEventListener('pointerdown', onPaperDown);
+  $('paper').addEventListener('pointermove', onPaperMove);
+  $('paper').addEventListener('pointerup', onPaperUp);
+  $('paper').addEventListener('pointercancel', () => cancelDrag());
   $('newSheetBtn').addEventListener('click', newSheet);
 
   // 설정 창

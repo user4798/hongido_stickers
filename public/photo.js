@@ -77,9 +77,10 @@ function defaultRotation(source, cell) {
 }
 
 // ---------- 사진 위치(편집값) ----------
-// 편집값 edit = { angle, scale, cx, cy }
+// 편집값 edit = { angle, scale, cx, cy, flip }
 //   칸 사진(300dpi 픽셀) 좌표에서, 사진 한가운데가 (cx, cy)에 오고,
 //   angle(라디안, 시계 방향)만큼 돌고, 원본 1픽셀이 scale 픽셀 크기로 그려진다.
+//   flip이 true면 사진을 좌우로 뒤집는다(셀카 글자 바로잡기 등).
 
 function cellPx(cell) {
   return { pxW: mmToPx(cell.w), pxH: mmToPx(cell.h) };
@@ -96,7 +97,7 @@ function minScale(angle, source, pxW, pxH) {
 function defaultEdit(source, cell) {
   const { pxW, pxH } = cellPx(cell);
   const angle = defaultRotation(source, cell) * Math.PI / 180;
-  return { angle, scale: minScale(angle, source, pxW, pxH), cx: pxW / 2, cy: pxH / 2 };
+  return { angle, scale: minScale(angle, source, pxW, pxH), cx: pxW / 2, cy: pxH / 2, flip: false };
 }
 
 // 각도가 0°·90°·180°·270° 근처면 똑바로 맞춘다
@@ -127,6 +128,7 @@ function clampEdit(e, source, pxW, pxH) {
     scale,
     cx: pxW / 2 - (cos * dx - sin * dy),
     cy: pxH / 2 - (sin * dx + cos * dy),
+    flip: !!e.flip,
   };
 }
 
@@ -135,7 +137,7 @@ function drawEdited(ctx, img, source, e) {
   ctx.save();
   ctx.translate(e.cx, e.cy);
   ctx.rotate(e.angle);
-  ctx.scale(e.scale, e.scale);
+  ctx.scale(e.flip ? -e.scale : e.scale, e.scale);   // 좌우 반전은 사진 자체를 뒤집는다
   ctx.drawImage(img, -source.w / 2, -source.h / 2, source.w, source.h);
   ctx.restore();
 }

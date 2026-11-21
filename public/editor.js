@@ -98,7 +98,8 @@ const Editor = (() => {
     let deg = Math.round((edit.angle * 180) / Math.PI) % 360;
     if (deg > 180) deg -= 360;
     if (deg <= -180) deg += 360;
-    $('editorInfo').textContent = `${deg}° · ${(edit.scale / smin).toFixed(1)}×`;
+    $('editorInfo').textContent = `${deg}° · ${(edit.scale / smin).toFixed(1)}×${edit.flip ? ' · 반전' : ''}`;
+    syncRotateUI(smin);
   }
 
   function roundRect(x, y, w, h, r) {
@@ -139,6 +140,7 @@ const Editor = (() => {
       scale: next,
       cx: pivot.x + cos * vx - sin * vy + mx,
       cy: pivot.y + sin * vx + cos * vy + my,
+      flip: edit.flip,
     };
   }
 
@@ -161,6 +163,7 @@ const Editor = (() => {
         scale: from.scale + (target.scale - from.scale) * e,
         cx: from.cx + (target.cx - from.cx) * e,
         cy: from.cy + (target.cy - from.cy) * e,
+        flip: target.flip,
       };
       draw();
       if (t < 1) anim = requestAnimationFrame(step);
@@ -361,6 +364,66 @@ const Editor = (() => {
     all.setAttribute('aria-pressed', applyAll ? 'true' : 'false');
   }
 
+  // ---------- 회전 도구 (각도 눈금 · 90° · 좌우 반전) · PC 확대 막대 ----------
+
+  const QUARTER = Math.PI / 2;
+  const DEG = Math.PI / 180;
+  let rotateMode = false;
+
+  // 지금 각도를 '90°의 배수 + 미세 각도'로 나눈다
+  function splitAngle(a) {
+    const base = Math.round(a / QUARTER) * QUARTER;
+    return { base, fine: (a - base) / DEG };
+  }
+
+  function setRotateMode(on) {
+    rotateMode = on;
+    $('rotatePanel').hidden = !on;
+    document.querySelector('.filter-panel').hidden = on;
+    $('editorRotate').classList.toggle('on', on);
+    if (opts) { layoutStage(); draw(); }
+  }
+
+  function syncRotateUI(smin) {
+    if (rotateMode) {
+      const { fine } = splitAngle(edit.angle);
+      const v = Math.round(fine * 2) / 2;
+      if (document.activeElement !== $('angleRuler')) $('angleRuler').value = v;
+      $('angleValue').textContent = `${v > 0 ? '+' : ''}${v.toFixed(v % 1 ? 1 : 0)}°`;
+      $('flipBtn').classList.toggle('on', !!edit.flip);
+      $('flipBtn').setAttribute('aria-pressed', edit.flip ? 'true' : 'false');
+    }
+    if (isFinePointer() && document.activeElement !== $('zoomRange')) {
+      $('zoomRange').value = Math.round((edit.scale / smin) * 100);
+    }
+  }
+
+  function isFinePointer() {
+    return window.matchMedia && window.matchMedia('(pointer: fine)').matches;
+  }
+
+  // 바뀐 값으로 빈틈 없이 바로 맞춘다 (막대를 움직일 때는 애니메이션 없이)
+  function applyNow(next) {
+    cancelAnimationFrame(anim);                      // 돌던 애니메이션이 막대 값을 덮어쓰지 않게
+    edit = clampEdit(next, opts.source, pxW, pxH);
+    requestDraw();
+  }
+
+  function onAngleInput(e) {
+    let v = Number(e.target.value);
+    if (Math.abs(v) < 0.8) v = 0;                       // 0° 근처는 똑바로 붙게
+    const { base } = splitAngle(edit.angle);
+    applyNow({ ...edit, angle: base + v * DEG });
+  }
+
+  function onZoomInput(e) {
+    const smin = minScale(edit.angle, opts.source, pxW, pxH);
+    const target = smin * Number(e.target.value) / 100;
+    const center = { x: pxW / 2, y: pxH / 2 };
+    applyGesture(center, target / edit.scale, 0, 0, 0);
+    applyNow(edit);
+  }
+
   // ---------- 열기·닫기 ----------
 
   async function open(o) {
@@ -376,6 +439,12 @@ const Editor = (() => {
     $('applyAllBtn').hidden = !(o.filledCount > 1);
     syncFilterUI();
     $('editorTitle').textContent = o.title;
+    $('editorHint').textContent = isFinePointer() ? '휠: 확대 · 끌기: 이동' : '한 손가락 이동 · 두 손가락 확대·회전';
+    $('zoomRow').hidden = !isFinePointer();
+    $('rotatePanel').hidden = true;
+    document.querySelector('.filter-panel').hidden = false;
+    rotateMode = false;
+    $('editorRotate').classList.remove('on');
     $('editor').hidden = false;
     document.body.classList.add('editing');
     layoutStage();
@@ -431,10 +500,15 @@ const Editor = (() => {
       scheduleRefresh();
     });
     $('applyAllBtn').addEventListener('click', () => { applyAll = !applyAll; syncFilterUI(); });
-    $('editorRotate').addEventListener('click', () => {
-      const next = { ...edit, angle: edit.angle + Math.PI / 2 };
-      animateTo(clampEdit(next, opts.source, pxW, pxH));
+    $('editorRotate').addEventListener('click', () => setRotateMode(!rotateMode));
+    $('rot90Btn').addEventListener('click', () => {
+      animateTo(clampEdit({ ...edit, angle: edit.angle + QUARTER }, opts.source, pxW, pxH));
     });
+    $('flipBtn').addEventListener('click', () => applyNow({ ...edit, flip: !edit.flip }));
+    $('angleRuler').addEventListener('input', onAngleInput);
+    $('angleRuler').addEventListener('change', () => $('angleRuler').blur());
+    $('zoomRange').addEventListener('input', onZoomInput);
+    $('zoomRange').addEventListener('change', () => $('zoomRange').blur());
     $('editorFit').addEventListener('click', () => animateTo(defaultEdit(opts.source, opts.cell)));
     $('editorReplace').addEventListener('click', () => { const o = opts; close(); o.onReplace(); });
     $('editorClear').addEventListener('click', () => { const o = opts; close(); o.onClear(); });

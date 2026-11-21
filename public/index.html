@@ -46,6 +46,7 @@
       <div id="paper" class="paper">
         <p class="empty-hint" id="emptyHint">칸을 눌러 사진을 고르세요</p>
         <span class="sheet-label" id="sheetLabel" aria-hidden="true"></span>
+        <span class="feed-mark" id="feedMark" aria-hidden="true" hidden><span data-icon="arrowUp"></span>넣는 방향</span>
       </div>
     </div>
   </main>
@@ -75,7 +76,21 @@
     <div id="editorStage" class="editor-stage">
       <canvas id="editorCanvas"></canvas>
       <span id="editorInfo" class="editor-info"></span>
-      <span class="editor-hint">한 손가락 이동 · 두 손가락 확대·회전</span>
+      <span class="editor-hint" id="editorHint">한 손가락 이동 · 두 손가락 확대·회전</span>
+      <div class="zoom-row" id="zoomRow" hidden>
+        <span>확대</span>
+        <input id="zoomRange" type="range" min="100" max="400" step="1" value="100" aria-label="확대">
+      </div>
+    </div>
+    <div class="rotate-panel" id="rotatePanel" hidden>
+      <div class="angle-row">
+        <span class="angle-value" id="angleValue">0°</span>
+        <input id="angleRuler" class="angle-ruler" type="range" min="-45" max="45" step="0.5" value="0" aria-label="각도">
+      </div>
+      <div class="rotate-btns">
+        <button id="rot90Btn" class="pill-btn"><span data-icon="rotate"></span>90° 돌리기</button>
+        <button id="flipBtn" class="pill-btn" aria-pressed="false"><span data-icon="flip"></span>좌우 반전</button>
+      </div>
     </div>
     <div class="filter-panel">
       <div class="filter-head">
@@ -90,7 +105,7 @@
       <div class="filter-strip" id="filterStrip"></div>
     </div>
     <div class="editor-tools">
-      <button id="editorRotate" class="tool"><span data-icon="rotate"></span>90°</button>
+      <button id="editorRotate" class="tool"><span data-icon="rotate"></span>회전</button>
       <button id="editorFit" class="tool"><span data-icon="fit"></span>맞춤</button>
       <button id="editorReplace" class="tool"><span data-icon="replace"></span>바꾸기</button>
       <button id="editorClear" class="tool danger"><span data-icon="trash"></span>비우기</button>
@@ -138,6 +153,7 @@
       <div class="checklist">
         <div class="row"><span data-icon="paper"></span><span class="row-label">용지 크기</span><b id="pfPaper"></b></div>
         <div class="row"><span data-icon="scale"></span><span class="row-label">배율</span><b id="pfScale"></b></div>
+        <div class="row" id="pfFeedRow"><span data-icon="arrowUp"></span><span class="row-label">용지 방향</span><b>화살표가 프린터 안쪽</b></div>
       </div>
       <p class="panel-note" id="pfNote"></p>
       <button id="preflightGo" class="accent-btn">확인하고 인쇄</button>
