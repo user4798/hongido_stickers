@@ -57,6 +57,7 @@ const Store = (() => {
         cells: (state.cells || []).map((c) => (c && c.fileId ? { fileId: c.fileId, edit: c.edit, look: c.look } : null)),
         used: state.used,
         lastPrinted: state.lastPrinted,
+        collage: state.collage || null,
       }, KEY);
 
       tx.oncomplete = () => { savedFiles = needed; resolve(); };

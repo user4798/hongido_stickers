@@ -7,7 +7,7 @@ importScripts('config.js');
 const CACHE = `hongido-app-${APP.version}`;   // 버전이 바뀌면 예전 보관 파일은 지운다
 const CORE = [
   './', 'index.html', 'style.css', 'config.js', 'icons.js', 'pdfwriter.js', 'calibration.js',
-  'filters.js', 'photo.js', 'photo-worker.js', 'editor.js', 'store.js', 'app.js',
+  'filters.js', 'photo.js', 'photo-worker.js', 'collage.js', 'editor.js', 'store.js', 'app.js',
   'test.html', 'test.js', 'hongido-face.png', 'icon-180.png', 'icon-512.png', 'favicon-64.png', 'favicon-192.png', 'manifest.webmanifest',
 ];
 

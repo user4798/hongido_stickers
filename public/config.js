@@ -43,9 +43,43 @@ const PRESETS = {
     cell: { w: 101.6, h: 152.4 },
     gap: { x: 0, y: 0 },
   },
+
+  // 4×6 매거진 콜라주: 비대칭 5컷(둥근 모서리) + 사진 톤 자동 배경색 + EXIF 날짜 + 3줄 문구
+  magazine4x6: {
+    name: '4×6 매거진 콜라주 (5컷)',
+    label: 'Magazine4x6',
+    chip: '4×6 매거진',
+    menuTitle: '4×6 매거진 콜라주',
+    menuSub: '10×15cm · 5컷 에디토리얼',
+    paperKind: '광택 인화지',
+    printPaper: '4×6 (10×15cm)',
+    printScale: '100%',
+    printNote: "'테두리 없음'을 켜면 가장자리까지 꽉 차요.",
+    testSheet: false,
+    collage: true,
+    paper: { w: 101.6, h: 152.4 },
+    margin: { top: 0, left: 0 },
+    grid: { cols: 1, rows: 1 },
+    cell: { w: 40.5, h: 77.5 },
+    gap: { x: 0, y: 0 },
+    // 모든 칸 좌표·크기·모서리 둥글기(mm): 4.5 + 40.5 + 2.5 + 40.5 + 2.5 + 11.1 = 101.6mm
+    slots: [
+      { x: 4.5,  y: 0,    w: 40.5, h: 38.0, r: [0, 0, 2.2, 2.2] },
+      { x: 4.5,  y: 40.5, w: 40.5, h: 72.0, r: 2.2 },
+      { x: 47.5, y: 27.5, w: 40.5, h: 40.5, r: 2.2 },
+      { x: 47.5, y: 70.5, w: 40.5, h: 77.5, r: 2.2 },
+      { x: 90.5, y: 70.5, w: 11.1, h: 77.5, r: [2.2, 0, 0, 2.2], defaultLook: { id: 'B1', amount: 1 } },
+    ],
+    // 글자 위치·크기(mm): 미리 보기와 300dpi PDF 합성이 같은 수치를 사용
+    typo: {
+      caption: { x: 47.5, y: 11.2, w: 40.5, size: 2.4, lineH: 3.1 },
+      month:   { x: 4.5,  y: 120.5, w: 40.5, size: 11.2 },
+      year:    { x: 4.5,  y: 145.2, w: 40.5, size: 2.2 },
+    },
+  },
 };
 
-const PRESET_ORDER = ['aone29602', 'photo4x6'];   // 판형 고르기 목록 순서
+const PRESET_ORDER = ['aone29602', 'photo4x6', 'magazine4x6'];   // 판형 고르기 목록 순서
 const DEFAULT_PRESET = 'aone29602';
 const PRESET_KEY = 'stickit.preset.v1';           // 마지막으로 고른 판형을 기억하는 이름
 
@@ -64,8 +98,8 @@ function setPresetId(id) {
 // 앱 버전 — 배포할 때마다 올린다 (큰 기능: 가운데 숫자, 고침: 끝 숫자)
 const APP = {
   name: 'Hongido Stickers',
-  version: '1.2.2',
-  date: '2026-11-21',
+  version: '1.3.0',
+  date: '2026-11-22',
   maker: 'Seoulrain',        // 서울비
 };
 
@@ -120,6 +154,19 @@ const CALIBRATION = {
 // 파생 값 계산: 칸 위치, 오른쪽·아래 마진
 function layoutOf(preset) {
   const p = preset;
+  if (Array.isArray(p.slots)) {
+    const cells = p.slots.map((s, i) => ({
+      row: i,
+      col: 0,
+      x: s.x,
+      y: s.y,
+      w: s.w,
+      h: s.h,
+      r: s.r || 0,
+      defaultLook: s.defaultLook || null,
+    }));
+    return { cells, marginRight: 0, marginBottom: 0 };
+  }
   const usedW = p.cell.w * p.grid.cols + p.gap.x * (p.grid.cols - 1);
   const usedH = p.cell.h * p.grid.rows + p.gap.y * (p.grid.rows - 1);
   const cells = [];

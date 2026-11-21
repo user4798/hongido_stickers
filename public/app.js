@@ -14,15 +14,16 @@ let cells = layout.cells.map(() => null);
 let used = layout.cells.map(() => false);
 let lastPrinted = [];
 let markMode = false;   // '이미 쓴 칸 표시하기' 중인지
+let collage = defaultCollageState();   // 4×6 매거진 콜라주 설정(배경 톤·날짜·3줄 문구)
 
 function resetSheetState() {
   used = layout.cells.map(() => false);
   lastPrinted = [];
 }
 
-// 이 판형에서 '사용함' 기능을 쓰는지 (칸이 하나뿐인 용지는 쓰지 않음)
+// 이 판형에서 '사용함' 기능을 쓰는지 (칸이 하나뿐이거나 매거진 콜라주 용지는 쓰지 않음)
 function canMarkUsed() {
-  return layout.cells.length > 1;
+  return !preset.collage && layout.cells.length > 1;
 }
 
 let busy = false;
@@ -96,6 +97,7 @@ function saveNow() {
     cells: cells.map((c) => (c && c.source.file ? { fileId: c.source.fileId, file: c.source.file, edit: c.edit, look: c.look } : null)),
     used,
     lastPrinted,
+    collage: preset.collage ? collage : null,
   });
 }
 
@@ -129,6 +131,11 @@ async function restore() {
     fitPaper();
   }
   resetSheetState();
+  if (saved.collage && typeof saved.collage === 'object') {
+    collage = { ...defaultCollageState(), ...saved.collage };
+  } else {
+    collage = defaultCollageState();
+  }
   if (Array.isArray(saved.used) && saved.used.length === cells.length) used = saved.used.map(Boolean);
   if (Array.isArray(saved.lastPrinted)) lastPrinted = saved.lastPrinted.filter((i) => i >= 0 && i < cells.length);
   render();
@@ -212,6 +219,7 @@ function startFresh() {
   saveTimer = 0;
   clearPhotos();
   resetSheetState();
+  collage = defaultCollageState();
   Store.clear();
   render();
 }
@@ -250,25 +258,46 @@ function emptySlotsFrom(start) {
   return order.filter((i) => !cells[i] && !used[i]);
 }
 
+// 첫 번째 사진의 EXIF 촬영 날짜를 읽어 매거진 날짜·첫째 줄에 자동 반영
+async function syncCollageDateFromFile(file, force = false) {
+  if (!preset.collage || !file) return;
+  const dt = await readPhotoDate(file);
+  const next = defaultCollageState(dt);
+  if (force || !collage.dateEdited) {
+    collage.year = next.year;
+    collage.monthText = next.monthText;
+  }
+  if (force || !collage.line0Edited) {
+    collage.lines[0] = next.lines[0];
+  }
+  render();
+  scheduleSave();
+}
+
 async function addFiles(files, slots) {
   if (busy || files.length === 0) return;
   const list = Array.from(files).slice(0, slots.length);
+  const hadPhotos = cells.some(Boolean);
   setBusy(true, list.length > 1 ? `사진 넣는 중 1 / ${list.length}` : '사진 넣는 중');
   slots.slice(0, list.length).forEach((i) => cellButton(i).classList.add('loading'));
   render();
   let failed = 0;
   let pending = list.length ? loadSourceSafe(list[0], layout.cells[slots[0]]) : null;
+  let dateFile = null;
 
   for (let k = 0; k < list.length; k++) {
     if (list.length > 1) $('busyText').textContent = `사진 넣는 중 ${k + 1} / ${list.length}`;
-    const cell = layout.cells[slots[k]];
+    const slotIdx = slots[k];
+    const cell = layout.cells[slotIdx];
     const loaded = await pending;
     // 현재 사진을 워커에서 그리는 동안 다음 사진을 미리 읽는다
     pending = k + 1 < list.length ? loadSourceSafe(list[k + 1], layout.cells[slots[k + 1]]) : null;
     if (loaded.ok) {
       try {
-        lastPrinted = lastPrinted.filter((idx) => idx !== slots[k]);
-        await setCellPhoto(slots[k], loaded.src, defaultEdit(loaded.src, cell), NO_LOOK, false);
+        lastPrinted = lastPrinted.filter((idx) => idx !== slotIdx);
+        const initialLook = cell.defaultLook ? { ...cell.defaultLook } : NO_LOOK;
+        await setCellPhoto(slotIdx, loaded.src, defaultEdit(loaded.src, cell), initialLook, false);
+        if (slotIdx === 0 || (!hadPhotos && !dateFile)) dateFile = list[k];
       } catch (e) {
         releaseSource(loaded.src);
         failed++;
@@ -276,10 +305,11 @@ async function addFiles(files, slots) {
     } else {
       failed++;
     }
-    cellButton(slots[k]).classList.remove('loading');
+    cellButton(slotIdx).classList.remove('loading');
     render();
   }
 
+  if (preset.collage && dateFile) await syncCollageDateFromFile(dateFile);
   scheduleSave();
   const skipped = files.length - list.length;
   const notes = [];
@@ -358,6 +388,7 @@ function openEditor(index) {
 // ---------- 인쇄 ----------
 
 function buildPrintPdf() {
+  if (preset.collage) return buildCollagePdf(preset, layout, cells, collage);
   const cal = loadCalibration();
   const doc = new PdfDoc(preset.paper.w, preset.paper.h);
   layout.cells.forEach((cell, i) => {
@@ -394,8 +425,9 @@ function setSkipPreflight(on) {
   try { localStorage.setItem(UI.skipPreflightKey, on ? '1' : '0'); } catch (e) { /* 저장 못 해도 동작은 계속 */ }
 }
 
-// 인쇄용 JPEG가 모두 만들어졌는지
+// 인쇄용 JPEG가 모두 만들어졌는지 (매거진 콜라주는 300dpi 미리 보기에서 바로 합성)
 function printReady() {
+  if (preset.collage) return cells.some(Boolean);
   return cells.filter(Boolean).every((c) => c.print);
 }
 
@@ -448,8 +480,10 @@ function cellButton(i) {
 // 용지 미리 보기를 남는 공간(가로·세로)에 꽉 맞춘다
 function fitPaper() {
   const stage = $('stage');
-  const w = Math.min(stage.clientWidth, stage.clientHeight * preset.paper.w / preset.paper.h);
-  $('paper').style.width = `${Math.floor(w)}px`;
+  const w = Math.floor(Math.min(stage.clientWidth, stage.clientHeight * preset.paper.w / preset.paper.h));
+  const paper = $('paper');
+  paper.style.width = `${w}px`;
+  paper.style.setProperty('--mm', `${w / preset.paper.w}px`);
 }
 
 function buildPaper() {
@@ -463,6 +497,10 @@ function buildPaper() {
     btn.style.top = pct(cell.y, preset.paper.h);
     btn.style.width = pct(cell.w, preset.paper.w);
     btn.style.height = pct(cell.h, preset.paper.h);
+    if (cell.r) {
+      const radii = slotRadiiMm(cell.r);
+      btn.style.borderRadius = radii.map((v) => `calc(${v} * var(--mm))`).join(' ');
+    }
     btn.innerHTML = iconSvg('plus');
     // 칼선 바깥(잘려 나갈 부분)을 살짝 어둡게 보여 주는 덮개 — 칼선이 있는 용지만
     if (preset.sticker) {
@@ -476,6 +514,33 @@ function buildPaper() {
     btn.addEventListener('click', () => onCellTap(i));
     paper.appendChild(btn);
   });
+
+  // 매거진 콜라주 글자 위치 설정 (mm 비율 그대로)
+  const typoEl = $('collageTypo');
+  if (preset.collage && preset.typo) {
+    const T = preset.typo;
+    const cap = $('collageCapBtn');
+    cap.style.left = pct(T.caption.x, preset.paper.w);
+    cap.style.top = pct(T.caption.y, preset.paper.h);
+    cap.style.width = pct(T.caption.w, preset.paper.w);
+    cap.style.fontSize = `calc(${T.caption.size} * var(--mm))`;
+    cap.style.lineHeight = `calc(${T.caption.lineH} * var(--mm))`;
+
+    const mon = $('collageMonBtn');
+    mon.style.left = pct(T.month.x, preset.paper.w);
+    mon.style.top = pct(T.month.y, preset.paper.h);
+    mon.style.width = pct(T.month.w, preset.paper.w);
+    mon.style.fontSize = `calc(${T.month.size} * var(--mm))`;
+
+    const yrs = $('collageYearBtn');
+    yrs.style.left = pct(T.year.x, preset.paper.w);
+    yrs.style.top = pct(T.year.y, preset.paper.h);
+    yrs.style.width = pct(T.year.w, preset.paper.w);
+    yrs.style.fontSize = `calc(${T.year.size} * var(--mm))`;
+    typoEl.hidden = false;
+  } else {
+    typoEl.hidden = true;
+  }
 }
 
 function render() {
@@ -505,8 +570,25 @@ function render() {
   $('emptyHint').textContent = allUsed
     ? '남은 칸이 없어요 · 칸을 눌러 해제하거나 새 용지로 시작하세요'
     : usedCount ? '빈 칸을 눌러 사진을 고르세요' : '칸을 눌러 사진을 고르세요';
-  $('emptyHint').classList.toggle('show', count === 0 && !busy && !markMode);
-  $('paper').classList.toggle('marking', markMode);
+  $('emptyHint').classList.toggle('show', !preset.collage && count === 0 && !busy && !markMode);
+  const paper = $('paper');
+  paper.classList.toggle('marking', markMode);
+  paper.classList.toggle('collage', !!preset.collage);
+  if (preset.collage) {
+    const theme = resolveCollageTheme(cells, collage.tone);
+    paper.style.background = theme.bg;
+    paper.style.setProperty('--collage-fg', theme.fg);
+    const lines = (collage.lines || []).filter((s) => s && s.trim());
+    $('collageCapBtn').textContent = lines.length ? lines.join('\n') : '문구 입력';
+    $('collageCapBtn').style.opacity = lines.length ? '' : '0.32';
+    $('collageMonBtn').textContent = collage.monthText || '';
+    const [yL, yR] = yearHalves(collage.year);
+    $('collageYearL').textContent = yL;
+    $('collageYearR').textContent = yR;
+  } else {
+    paper.style.background = '';
+    paper.style.removeProperty('--collage-fg');
+  }
   $('markBanner').hidden = !markMode;
   // 아래 큰 버튼: 표시 중이면 '표시 완료', 남은 칸이 없으면 '새 용지로 시작', 사진이 없으면 '사진 고르기', 있으면 'PRINT'
   const pick = count === 0;
@@ -563,7 +645,7 @@ function applyPresetLabels() {
   $('pfPaper').textContent = preset.printPaper;
   $('pfScale').textContent = preset.printScale;
   if ($('calibRow')) $('calibRow').hidden = !preset.testSheet;
-  if ($('markFromMenu')) $('markFromMenu').hidden = layoutOf(preset).cells.length < 2;
+  if ($('markFromMenu')) $('markFromMenu').hidden = !canMarkUsed();
   $('sheetLabel').textContent = preset.sheetLabel || '';
   $('feedMark').hidden = !preset.feedMark;
   $('pfFeedRow').hidden = !preset.feedMark;
@@ -664,12 +746,22 @@ async function switchPreset(id) {
           } catch (e) { /* 실패하면 있던 크기로 */ }
         }
       }
-      await setCellPhoto(i, src, defaultEdit(src, layout.cells[i]), move[i].look, false);
+      const nextLook = (move[i].look && move[i].look.id !== 'none')
+        ? move[i].look
+        : (layout.cells[i].defaultLook ? { ...layout.cells[i].defaultLook } : NO_LOOK);
+      await setCellPhoto(i, src, defaultEdit(src, layout.cells[i]), nextLook, false);
       cellButton(i).classList.remove('loading');
       render();
     }
     upgraded.forEach((_, oldSrc) => releaseIfUnused(oldSrc));
+    if (preset.collage && move[0] && move[0].source.file) {
+      collage = defaultCollageState();
+      await syncCollageDateFromFile(move[0].source.file, true);
+    }
     setBusy(false);
+    render();
+  } else if (preset.collage) {
+    collage = defaultCollageState();
     render();
   }
   scheduleSave();
@@ -710,12 +802,15 @@ function bindSheetSwipe(id) {
   let s = null;
   let suppressClickUntil = 0;
 
-  overlay.addEventListener('touchmove', (e) => { e.preventDefault(); }, { passive: false });
+  overlay.addEventListener('touchmove', (e) => {
+    if (!e.target.closest('input[type="text"], textarea')) e.preventDefault();
+  }, { passive: false });
   panel.addEventListener('click', (e) => {
     if (performance.now() < suppressClickUntil) { e.stopPropagation(); e.preventDefault(); }
   }, true);
 
   panel.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('input[type="text"], textarea')) return;
     clearTimeout(overlay._closeTimer);
     overlay._closeTimer = 0;
     s = { id: e.pointerId, y0: e.clientY, lastY: e.clientY, lastT: performance.now(), vy: 0, dy: 0, dragging: false };
@@ -772,7 +867,7 @@ function bindMainRubberBand() {
   let r = null;
   let suppressClickUntil = 0;
 
-  const anySheetOpen = () => ['preflight', 'continueSheet', 'presetMenu', 'settings'].some((id) => !$(id).hidden);
+  const anySheetOpen = () => ['preflight', 'continueSheet', 'presetMenu', 'settings', 'collageSheet'].some((id) => !$(id).hidden);
   const rubber = (d) => {
     const a = Math.abs(d);
     // 아래로 당길 때(위쪽 끝 확인)는 넉넉하게, 위로 당길 때는 살짝만 반응
@@ -917,7 +1012,7 @@ function onPaperMove(e) {
   if (over !== drag.over) {
     if (drag.over >= 0) cellButton(drag.over).classList.remove('drop-target');
     removeSwapPreview();
-    drag.over = over >= 0 && over !== drag.from && !used[over] && sameSize(over, drag.from) ? over : -1;
+    drag.over = over >= 0 && over !== drag.from && !used[over] && (preset.collage || sameSize(over, drag.from)) ? over : -1;
     if (drag.over >= 0) {
       // 놓으면 무슨 일이 생기는지 미리 보여 준다: 사진이 있으면 '바꾸기', 비었으면 '옮기기'
       const t = cellButton(drag.over);
@@ -928,7 +1023,7 @@ function onPaperMove(e) {
   }
 }
 
-function onPaperUp(e) {
+async function onPaperUp(e) {
   if (!drag || e.pointerId !== drag.id) return;
   const { active, from, over, onTrash } = drag;
   cancelDrag();
@@ -942,6 +1037,15 @@ function onPaperUp(e) {
   if (over < 0) return;
   [cells[from], cells[over]] = [cells[over], cells[from]];
   lastPrinted = lastPrinted.filter((k) => k !== from && k !== over);
+  // 매거진 콜라주처럼 크기가 다른 칸끼리 바꿨으면 새 칸 비율에 맞게 다시 그린다
+  if (!sameSize(from, over)) {
+    setBusy(true, '칸 크기에 맞추는 중');
+    for (const idx of [from, over]) {
+      const c = cells[idx];
+      if (c) await setCellPhoto(idx, c.source, defaultEdit(c.source, layout.cells[idx]), c.look, false);
+    }
+    setBusy(false);
+  }
   render();
   scheduleSave();
 }
@@ -1007,6 +1111,91 @@ function onCellTap(i) {
   openEditor(i);              // 사진 있는 칸: 편집 화면
 }
 
+// ---------- 매거진 꾸미기 창 ----------
+
+function buildToneChips() {
+  const wrap = $('toneChips');
+  wrap.innerHTML = '';
+  COLLAGE_TONES.forEach((t) => {
+    const btn = document.createElement('button');
+    btn.className = 'tone-chip';
+    btn.type = 'button';
+    btn.dataset.id = t.id;
+    const dot = document.createElement('span');
+    dot.className = 'tone-dot';
+    dot.style.background = t.bg;
+    const txt = document.createElement('span');
+    txt.textContent = t.name;
+    btn.append(dot, txt);
+    btn.addEventListener('click', () => {
+      collage.tone = t.id;
+      syncToneChips();
+      render();
+      scheduleSave();
+    });
+    wrap.appendChild(btn);
+  });
+}
+
+function syncToneChips() {
+  const autoBg = extractPaperTone(cells);
+  document.querySelectorAll('.tone-chip').forEach((b) => {
+    b.classList.toggle('on', b.dataset.id === collage.tone);
+    if (b.dataset.id === 'auto') b.querySelector('.tone-dot').style.background = autoBg;
+  });
+}
+
+function openCollageSheet(focusId = null) {
+  if (busy || !preset.collage) return;
+  syncToneChips();
+  $('colMonth').value = collage.monthText || '';
+  $('colYear').value = collage.year || '';
+  $('colLine0').value = (collage.lines && collage.lines[0]) || '';
+  $('colLine1').value = (collage.lines && collage.lines[1]) || '';
+  $('colLine2').value = (collage.lines && collage.lines[2]) || '';
+  openSheet('collageSheet');
+  if (focusId && $(focusId)) setTimeout(() => $(focusId).focus(), 180);
+}
+
+function bindCollageSheet() {
+  buildToneChips();
+  $('collageCapBtn').addEventListener('click', () => openCollageSheet('colLine0'));
+  $('collageMonBtn').addEventListener('click', () => openCollageSheet('colMonth'));
+  $('collageYearBtn').addEventListener('click', () => openCollageSheet('colYear'));
+
+  $('colMonth').addEventListener('input', (e) => {
+    collage.monthText = e.target.value;
+    collage.dateEdited = true;
+    render();
+    scheduleSave();
+  });
+  $('colYear').addEventListener('input', (e) => {
+    collage.year = e.target.value;
+    collage.dateEdited = true;
+    render();
+    scheduleSave();
+  });
+  ['colLine0', 'colLine1', 'colLine2'].forEach((id, idx) => {
+    $(id).addEventListener('input', (e) => {
+      collage.lines[idx] = e.target.value;
+      if (idx === 0) collage.line0Edited = true;
+      render();
+      scheduleSave();
+    });
+  });
+
+  $('collageDone').addEventListener('click', () => closeSheet('collageSheet'));
+  $('collageReset').addEventListener('click', async () => {
+    const first = cells.find((c) => c && c.source && c.source.file);
+    collage = defaultCollageState();
+    if (first) await syncCollageDateFromFile(first.source.file, true);
+    else { render(); scheduleSave(); }
+    openCollageSheet();
+    toast('사진 날짜와 자동 톤으로 되돌렸어요');
+  });
+  $('collageSheet').addEventListener('click', (e) => { if (e.target.id === 'collageSheet') closeSheet('collageSheet'); });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   applyPresetLabels();
   buildPresetMenu();
@@ -1063,12 +1252,13 @@ document.addEventListener('DOMContentLoaded', () => {
   $('continueSheet').addEventListener('click', (e) => { if (e.target.id === 'continueSheet') closeSheet('continueSheet'); });
 
   // 바텀 시트 아래로 쓸어내려 닫기 + 기본 화면 고무줄 탄성 + PC Esc 키 닫기
-  ['settings', 'presetMenu', 'continueSheet', 'preflight'].forEach(bindSheetSwipe);
+  bindCollageSheet();
+  ['settings', 'presetMenu', 'continueSheet', 'preflight', 'collageSheet'].forEach(bindSheetSwipe);
   bindMainRubberBand();
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     if (Editor.isOpen()) { Editor.cancel(); return; }
-    ['preflight', 'continueSheet', 'presetMenu', 'settings'].forEach((id) => {
+    ['preflight', 'continueSheet', 'presetMenu', 'settings', 'collageSheet'].forEach((id) => {
       if (!$(id).hidden) closeSheet(id);
     });
   });

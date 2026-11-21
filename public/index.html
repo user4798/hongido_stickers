@@ -20,6 +20,7 @@
   <script src="calibration.js"></script>
   <script src="filters.js"></script>
   <script src="photo.js"></script>
+  <script src="collage.js"></script>
   <script src="editor.js"></script>
   <script src="store.js"></script>
   <script src="app.js"></script>
@@ -47,6 +48,11 @@
         <p class="empty-hint" id="emptyHint">칸을 눌러 사진을 고르세요</p>
         <span class="sheet-label" id="sheetLabel" aria-hidden="true"></span>
         <span class="feed-mark" id="feedMark" aria-hidden="true" hidden><svg class="feed-arrow" viewBox="0 0 34 20"><path d="M17 1.5 L32 11 H23.5 V18.5 H10.5 V11 H2 Z"/></svg>FEED</span>
+        <div id="collageTypo" class="collage-typo" hidden>
+          <button id="collageCapBtn" class="collage-btn collage-cap" type="button" aria-label="오른쪽 위 문구 수정"></button>
+          <button id="collageMonBtn" class="collage-btn collage-mon" type="button" aria-label="월 표기 수정"></button>
+          <button id="collageYearBtn" class="collage-btn collage-years" type="button" aria-label="연도 표기 수정"><span id="collageYearL"></span><span id="collageYearR"></span></button>
+        </div>
       </div>
     </div>
   </main>
@@ -162,6 +168,36 @@
       <button id="continueGo" class="accent-btn">남은 칸 이어 쓰기</button>
       <button id="continueAdd" class="link-btn" hidden>기존 사진 그대로 두고 추가하기</button>
       <button id="continueFresh" class="link-btn">새 용지로 시작</button>
+    </div>
+  </div>
+
+  <!-- 매거진 꾸미기 (배경 톤·날짜·3줄 문구) -->
+  <div id="collageSheet" class="overlay" hidden>
+    <div class="panel collage-panel" role="dialog" aria-labelledby="collageSheetTitle">
+      <div class="grabber"></div>
+      <h2 id="collageSheetTitle">매거진 꾸미기</h2>
+      <p class="panel-sub">배경 톤과 글자를 자유롭게 바꿀 수 있어요</p>
+      <div class="collage-group">
+        <span class="collage-label">배경 톤</span>
+        <div id="toneChips" class="tone-chips"></div>
+      </div>
+      <div class="collage-group">
+        <span class="collage-label">왼쪽 아래 날짜</span>
+        <div class="collage-date-row">
+          <input id="colMonth" type="text" maxlength="10" placeholder="(Nov)" aria-label="월 표기">
+          <input id="colYear" type="text" inputmode="numeric" maxlength="4" placeholder="2026" aria-label="연도">
+        </div>
+      </div>
+      <div class="collage-group">
+        <span class="collage-label">오른쪽 위 3줄 문구 (비우면 숨김)</span>
+        <div class="collage-lines">
+          <input id="colLine0" type="text" maxlength="24" placeholder="Nov. 2026" aria-label="첫째 줄">
+          <input id="colLine1" type="text" maxlength="24" placeholder="Hongido" aria-label="둘째 줄">
+          <input id="colLine2" type="text" maxlength="24" placeholder="Five Frames" aria-label="셋째 줄">
+        </div>
+      </div>
+      <button id="collageDone" class="accent-btn">완료</button>
+      <button id="collageReset" class="link-btn">사진 날짜·자동 톤으로 되돌리기</button>
     </div>
   </div>
 

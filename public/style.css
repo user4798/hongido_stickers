@@ -161,6 +161,8 @@ input { -webkit-user-select: text; user-select: text; }
   width: 100%;
   background: var(--paper);
   border-radius: 6px;
+  overflow: hidden;
+  transition: background-color 0.3s ease;
 }
 
 .cell {
@@ -182,6 +184,8 @@ input { -webkit-user-select: text; user-select: text; }
 .cell.filled:active { opacity: 0.85; }
 
 .cell.filled { border: none; border-radius: 0; }
+.paper.collage .cell { border-color: rgba(0, 0, 0, 0.16); color: rgba(0, 0, 0, 0.28); }
+.paper.collage .cell.filled { border: none; }
 .cell.filled svg { display: none; }
 .cell-img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; z-index: 0; }
 /* 칼선 바깥(잘려 나갈 부분)을 살짝 어둡게 — 보이는 그대로 스티커가 되게 */
@@ -335,6 +339,80 @@ input { -webkit-user-select: text; user-select: text; }
   stroke-width: 1.6;
   stroke-linejoin: round;
 }
+
+/* ---------- 4×6 매거진 콜라주 글자·편집 창 ---------- */
+.collage-typo { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.collage-typo[hidden] { display: none; }
+.collage-btn {
+  position: absolute;
+  pointer-events: auto;
+  color: var(--collage-fg, #1a1a1c);
+  font-family: var(--font-display);
+  text-align: left;
+  padding: 0;
+  line-height: 1;
+  white-space: pre-line;
+  border-radius: 4px;
+  transition: opacity 0.15s;
+}
+.collage-btn:active { opacity: 0.55; }
+.collage-cap {
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  overflow: hidden;
+  min-height: 24px;
+}
+.collage-mon {
+  font-weight: 400;
+  letter-spacing: -0.04em;
+  min-height: 28px;
+}
+.collage-years {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  min-height: 20px;
+}
+.collage-group { margin-bottom: 12px; }
+.collage-label { display: block; font-size: 12px; color: var(--text-2); margin-bottom: 6px; }
+.tone-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tone-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 99px;
+  background: var(--raised);
+  border: 1.5px solid transparent;
+  font-size: 13px;
+  color: var(--text);
+}
+.tone-chip.on { border-color: var(--accent); color: var(--accent); }
+.tone-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  flex: none;
+}
+.collage-date-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.collage-lines { display: flex; flex-direction: column; gap: 6px; }
+.collage-panel input[type="text"] {
+  width: 100%;
+  height: 42px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 0.5px solid var(--line);
+  background: var(--raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  touch-action: auto;
+}
+.collage-panel input[type="text"]:focus { outline: none; border-color: var(--accent); }
 
 .bottombar {
   position: fixed;
