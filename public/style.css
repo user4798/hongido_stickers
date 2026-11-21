@@ -258,15 +258,22 @@ input { -webkit-user-select: text; user-select: text; }
   transform: translateX(-50%);
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  font-size: 9.5px;
-  font-weight: 500;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
   letter-spacing: 0.04em;
-  color: rgba(60, 175, 70, 0.6);
+  color: rgba(60, 175, 70, 0.75);
   pointer-events: none;
 }
 .feed-mark[hidden] { display: none; }
-.feed-mark .icon { width: 12px; height: 12px; }
+.feed-arrow {
+  width: 26px;
+  height: 16px;
+  fill: rgba(60, 175, 70, 0.12);
+  stroke: rgba(60, 175, 70, 0.75);
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+}
 
 .bottombar {
   position: fixed;
