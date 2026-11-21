@@ -104,11 +104,11 @@ async function restore() {
   render();
 }
 
-// 새 장: 모든 칸을 비우고 저장된 작업도 지운다
+// 모두 비우기: 모든 칸을 비우고 저장된 작업도 지운다
 function newSheet() {
   const n = cells.filter(Boolean).length;
   if (!n || busy) return;
-  if (!confirm(`${n}장을 모두 비우고 새 장을 시작할까요?`)) return;
+  if (!confirm(`사진 ${n}장을 모두 비울까요?`)) return;
   cells.forEach((c) => c && releaseSource(c.source));
   cells = layout.cells.map(() => null);
   Store.clear();
@@ -364,6 +364,7 @@ function applyPresetLabels() {
   $('pfPaper').textContent = preset.printPaper;
   $('pfScale').textContent = preset.printScale;
   if ($('calibRow')) $('calibRow').hidden = !preset.testSheet;
+  $('sheetLabel').textContent = preset.sheetLabel || '';
   $('pfNote').textContent = preset.printNote ? `${preset.printNote} '용지에 맞춤'은 꺼 주세요.` : "'용지에 맞춤'이 켜져 있으면 칸이 어긋나요.";
 }
 
