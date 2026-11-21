@@ -5,9 +5,18 @@
 const Editor = (() => {
   let opts = null;          // openEditor에 넘긴 값
   let img = null;           // 보관용 사진
-  let base = null;          // 화면용으로 줄인 사진 (필터 미리 보기의 바탕)
-  let dispImg = null;       // 필터를 입힌 화면용 사진 (재사용해 캔버스 메모리 절약)
+  let base = null;          // 화면용으로 줄인 사진 (선명한 900px)
+  let dispImg = null;       // 필터·조정을 입힌 선명한 미리 보기
   let dispCtx = null;
+  let fullFiltered = null;  // 필터까지만 입힌 900px 픽셀 캐시 (조정 슬라이더 고속화용)
+  let fullOut = null;
+  let fastBase = null;      // 슬라이더 드래그 중 60fps용 가벼운 420px 사진
+  let fastDisp = null;
+  let fastCtx = null;
+  let fastFiltered = null;  // 필터까지만 입힌 420px 픽셀 캐시
+  let fastOut = null;
+  let useFast = false;      // 슬라이더 드래그 중인지
+  let crispTimer = 0;       // 슬라이더를 멈추면 선명한 900px로 마무리
   let stripToken = 0;       // 비동기 필터 썸네일 그리기 취소용 번호
   let look = null;          // 지금 필터 { id, amount }
   let applyAll = false;     // '모든 칸에 적용'
@@ -50,12 +59,13 @@ const Editor = (() => {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    const shownImg = (useFast && fastDisp) ? fastDisp : (dispImg || img);
     const place = (alpha) => {
       ctx.save();
       ctx.globalAlpha = alpha;
       ctx.translate(x, y);
       ctx.scale(k, k);
-      drawEdited(ctx, dispImg || img, opts.source, edit);
+      drawEdited(ctx, shownImg, opts.source, edit);
       ctx.restore();
     };
 
@@ -67,6 +77,8 @@ const Editor = (() => {
     ctx.fillStyle = '#fff';
     ctx.fillRect(x, y, w, h);
     place(1);                          // 프레임 안: 선명하게
+    // 비네팅·필름 그레인은 인쇄 영역(프레임) 정중앙 기준으로 적용 (인쇄 결과와 100% 일치)
+    applyFrameEffects(ctx, x, y, w, h, look, 'preview');
 
     // 3등분 보조선
     ctx.strokeStyle = 'rgba(255,255,255,0.35)';
@@ -285,32 +297,74 @@ const Editor = (() => {
 
   // ---------- 필터 ----------
 
-  const PREVIEW_MAX = 900;   // 화면 미리 보기용 사진의 긴 쪽 픽셀 (빠르게 계산하려고 줄임)
+  const PREVIEW_MAX = 900;   // 정지 시 선명한 미리 보기 픽셀
+  const FAST_MAX = 420;      // 슬라이더 드래그 중 60fps용 가벼운 미리 보기 픽셀
 
-  function makeBase(image, source) {
-    const s = Math.min(1, PREVIEW_MAX / Math.max(source.w, source.h));
+  function makeScaled(image, source, maxPx) {
+    const s = Math.min(1, maxPx / Math.max(source.w, source.h));
     const c = document.createElement('canvas');
-    c.width = Math.round(source.w * s);
-    c.height = Math.round(source.h * s);
+    c.width = Math.max(1, Math.round(source.w * s));
+    c.height = Math.max(1, Math.round(source.h * s));
     c.getContext('2d').drawImage(image, 0, 0, c.width, c.height);
     return c;
   }
 
-  // 화면용 사진에 지금 필터를 입힌다 (캔버스 1개를 재사용해 아이폰 메모리 부담 제거)
-  function refreshPreview() {
+  // 필터+인쇄보정까지만 계산해 픽셀을 보관해 둔다 (조정 슬라이더를 움직일 때 LUT를 다시 안 돌게)
+  function rebuildFilterCache(fastOnly = false) {
     if (!base || !dispImg) return;
-    dispCtx.drawImage(base, 0, 0);
-    applyLook(dispCtx, dispImg.width, dispImg.height, look, printFixEnabled(), 'preview');
+    const filterOnly = { id: look.id, amount: look.amount };
+    const pf = printFixEnabled();
+    if (fastBase && fastDisp) {
+      fastCtx.drawImage(fastBase, 0, 0);
+      applyLook(fastCtx, fastDisp.width, fastDisp.height, filterOnly, pf, 'preview');
+      fastFiltered = new Uint8ClampedArray(fastCtx.getImageData(0, 0, fastDisp.width, fastDisp.height).data);
+    }
+    if (!fastOnly) {
+      dispCtx.drawImage(base, 0, 0);
+      applyLook(dispCtx, dispImg.width, dispImg.height, filterOnly, pf, 'preview');
+      fullFiltered = new Uint8ClampedArray(dispCtx.getImageData(0, 0, dispImg.width, dispImg.height).data);
+    }
+  }
+
+  // 보관해 둔 필터 픽셀 위에 색 조정 5종만 빠르게 입힌다 (LUT 생략 → ~2ms)
+  function applyAdjustToCanvas(fast) {
+    if (fast && fastFiltered && fastOut) {
+      applyColorAdjust(fastFiltered, fastOut.data, look.adj);
+      fastCtx.putImageData(fastOut, 0, 0);
+    } else if (fullFiltered && fullOut) {
+      applyColorAdjust(fullFiltered, fullOut.data, look.adj);
+      dispCtx.putImageData(fullOut, 0, 0);
+    }
+  }
+
+  function refreshPreview(fast = false) {
+    if (!base || !dispImg) return;
+    useFast = fast;
+    rebuildFilterCache(fast);
+    applyAdjustToCanvas(fast);
   }
 
   let refreshPending = false;
-  function scheduleRefresh() {
+  let pendingMode = 'adjust';   // 'adjust' | 'filter'
+  function scheduleRefresh(mode = 'adjust') {
+    if (mode === 'filter') pendingMode = 'filter';
+    clearTimeout(crispTimer);
+    crispTimer = setTimeout(() => {
+      if (!opts) return;
+      useFast = false;
+      if (pendingMode === 'filter') rebuildFilterCache(false);
+      applyAdjustToCanvas(false);
+      pendingMode = 'adjust';
+      draw();
+    }, 120);
     if (refreshPending) return;
     refreshPending = true;
     requestAnimationFrame(() => {
       refreshPending = false;
       if (!opts) return;
-      refreshPreview();
+      useFast = true;
+      if (pendingMode === 'filter') rebuildFilterCache(true);
+      applyAdjustToCanvas(true);
       draw();
     });
   }
@@ -535,9 +589,19 @@ const Editor = (() => {
 
   function releaseTempCanvases() {
     stripToken++;
+    clearTimeout(crispTimer);
+    crispTimer = 0;
+    useFast = false;
     if (base) { freeCanvas(base); base = null; }
     if (dispImg) { freeCanvas(dispImg); dispImg = null; }
+    if (fastBase) { freeCanvas(fastBase); fastBase = null; }
+    if (fastDisp) { freeCanvas(fastDisp); fastDisp = null; }
     dispCtx = null;
+    fastCtx = null;
+    fullFiltered = null;
+    fullOut = null;
+    fastFiltered = null;
+    fastOut = null;
     const strip = $('filterStrip');
     if (strip) {
       strip.querySelectorAll('canvas').forEach(freeCanvas);
@@ -557,12 +621,21 @@ const Editor = (() => {
     applyAll = false;
     rulerBase = null;
     activeAdj = 'exp';
-    base = makeBase(img, o.source);
+    base = makeScaled(img, o.source, PREVIEW_MAX);
     dispImg = document.createElement('canvas');
     dispImg.width = base.width;
     dispImg.height = base.height;
     dispCtx = dispImg.getContext('2d', { willReadFrequently: true });
-    refreshPreview();
+    fullOut = dispCtx.createImageData(dispImg.width, dispImg.height);
+
+    fastBase = makeScaled(img, o.source, FAST_MAX);
+    fastDisp = document.createElement('canvas');
+    fastDisp.width = fastBase.width;
+    fastDisp.height = fastBase.height;
+    fastCtx = fastDisp.getContext('2d', { willReadFrequently: true });
+    fastOut = fastCtx.createImageData(fastDisp.width, fastDisp.height);
+
+    refreshPreview(false);
     buildStrip();
     $('applyAllBtn').hidden = !(o.filledCount > 1);
     $('editorPrev').hidden = !(o.filledCount > 1 && o.onStep);
@@ -646,7 +719,7 @@ const Editor = (() => {
     $('filterAmount').addEventListener('input', (e) => {
       look = { ...look, amount: Number(e.target.value) / 100 };
       $('filterAmountValue').textContent = e.target.value;
-      scheduleRefresh();
+      scheduleRefresh('filter');
     });
     buildAdjustStrip();
     $('applyAllBtn').addEventListener('click', () => { applyAll = !applyAll; syncFilterUI(); });
@@ -655,14 +728,21 @@ const Editor = (() => {
     $('adjustRange').addEventListener('input', (e) => {
       look = { ...look, adj: { ...look.adj, [activeAdj]: Number(e.target.value) } };
       syncAdjustUI();
-      scheduleRefresh();
+      // 비네팅·그레인은 프레임 위 GPU 레이어로 즉시 그려 지연 0ms
+      if (activeAdj === 'vig' || activeAdj === 'grn') requestDraw();
+      else scheduleRefresh('adjust');
     });
     $('adjustVal').addEventListener('click', () => {
       if (!look || !(look.adj && look.adj[activeAdj])) return;
       look = { ...look, adj: { ...look.adj, [activeAdj]: 0 } };
       syncAdjustUI();
-      refreshPreview();
-      draw();
+      if (activeAdj === 'vig' || activeAdj === 'grn') {
+        requestDraw();
+      } else {
+        useFast = false;
+        applyAdjustToCanvas(false);
+        draw();
+      }
     });
     $('angleValue').addEventListener('click', () => {
       rulerBase = null;

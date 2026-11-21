@@ -257,53 +257,163 @@ function emptyAdj() {
   return { exp: 0, con: 0, shd: 0, sat: 0, tmp: 0, vig: 0, grn: 0 };
 }
 
-function hasAdjust(adj) {
+function hasColorAdjust(adj) {
   if (!adj) return false;
-  return !!(adj.exp || adj.con || adj.shd || adj.sat || adj.tmp || adj.vig || adj.grn);
+  return !!(adj.exp || adj.con || adj.shd || adj.sat || adj.tmp);
 }
 
-// 캔버스에 그려진 사진에 필터·수동 조정·인쇄 보정을 적용한다.
-// look = { id, amount(0~1), adj? }, mode: 'print'(필터 입자·비네팅·선명도 포함) | 'preview'
-function applyLook(ctx, w, h, look, printFix, mode) {
-  const f = findFilter(look && look.id);
-  const amount = look && look.amount !== undefined ? look.amount : 1;
-  const adj = look && look.adj ? look.adj : null;
-  const useFilter = f.id !== 'none' && amount > 0;
-  const useAdj = hasAdjust(adj);
-  if (!useFilter && !printFix && !useAdj) return;
+function hasAdjust(adj) {
+  if (!adj) return false;
+  return hasColorAdjust(adj) || !!(adj.vig || adj.grn);
+}
 
-  const img = ctx.getImageData(0, 0, w, h);
-  const d = img.data;
-  const isPrint = mode === 'print';
-  const rand = seededRandom(w * 7919 + h);
-  const userGrain = adj && adj.grn ? (adj.grn / 100) * 0.16 : 0;
-  const userVig = adj && adj.vig ? (adj.vig / 100) * 0.55 : 0;
-  const grain = (isPrint && useFilter ? (f.grain || 0) * amount : 0) + userGrain;
-  const vig = (isPrint && useFilter ? (f.vignette || 0) * amount : 0) + userVig;
-  const cx = w / 2, cy = h / 2;
-  const invMaxR2 = 1 / (cx * cx + cy * cy || 1);
-  const useLut = useFilter || printFix;
-  const lut = useLut ? colorTable(useFilter ? f : null, amount, printFix) : null;
-  const N1 = LUT_N - 1, K = N1 / 255, NN = LUT_N * LUT_N, N3 = LUT_N * 3, NN3 = NN * 3;
-  // 색 단계 나누기: 보정표는 경계를 부드럽게 섞으므로, 단계는 표를 거친 뒤 따로 끊는다
-  const steps = useFilter && f.posterize ? f.posterize - 1 : 0;
-
-  // 수동 색 조정 계수 (반복문 밖에서 한 번만 계산)
+// 색 조정 5종(밝기·대비·그림자·채도·색온도)만 빠르게 적용 (슬라이더 드래그 60fps용)
+function applyColorAdjust(src, dst, adj) {
   const expMul = adj && adj.exp ? Math.pow(2, (adj.exp / 50) * 0.72) : 1;
   const shdAmt = adj && adj.shd ? (adj.shd / 50) * 0.34 : 0;
   const conFac = adj && adj.con ? 1 + (adj.con / 50) * 0.45 : 1;
   const tmpAmt = adj && adj.tmp ? (adj.tmp / 50) * 0.12 : 0;
   const satFac = adj && adj.sat ? 1 + (adj.sat / 50) * 0.75 : 1;
+  if (expMul === 1 && !shdAmt && conFac === 1 && !tmpAmt && satFac === 1) {
+    if (dst !== src) dst.set(src);
+    return;
+  }
+  const inv255 = 1 / 255;
+  for (let i = 0; i < src.length; i += 4) {
+    let r = src[i] * inv255, g = src[i + 1] * inv255, b = src[i + 2] * inv255;
+    if (expMul !== 1) { r *= expMul; g *= expMul; b *= expMul; }
+    if (shdAmt) {
+      const l = 0.299 * r + 0.587 * g + 0.114 * b;
+      const lc = l < 0 ? 0 : l > 1 ? 1 : l;
+      const ws = (1 - lc) * (1 - lc) * shdAmt;
+      r += ws; g += ws; b += ws;
+    }
+    if (conFac !== 1) {
+      r = (r - 0.5) * conFac + 0.5; g = (g - 0.5) * conFac + 0.5; b = (b - 0.5) * conFac + 0.5;
+    }
+    if (tmpAmt) { r += tmpAmt; b -= tmpAmt; }
+    if (satFac !== 1) {
+      const l2 = 0.299 * r + 0.587 * g + 0.114 * b;
+      r = l2 + (r - l2) * satFac; g = l2 + (g - l2) * satFac; b = l2 + (b - l2) * satFac;
+    }
+    dst[i] = r * 255; dst[i + 1] = g * 255; dst[i + 2] = b * 255; dst[i + 3] = src[i + 3];
+  }
+}
 
-  for (let y = 0; y < h; y++) {
-    const dy = y - cy;
-    const dy2 = dy * dy;
-    const rowOff = y * w;
-    for (let x = 0; x < w; x++) {
-      const i = (rowOff + x) * 4;
-      let r, g, b;
-      if (useLut) {
-        // 색 보정표에서 찾기 (r·g·b를 바로 풀어 계산해 반복문·배열 비용 제거)
+// ---------- VSCO 스타일 유기적 필름 입자 타일 & 인쇄 영역 기준 비네팅 ----------
+// 1px 디지털 잡음 대신 부드럽게 뭉친 아날로그 입자(정규분포 + 이음새 없는 3×3 뭉침)를 한 번 만들어 재사용한다.
+let grainTileCache = null;
+
+function getGrainTile() {
+  if (grainTileCache) return grainTileCache;
+  const N = 128;
+  const raw = new Float32Array(N * N);
+  const rand = seededRandom(20261122);
+  for (let i = 0; i < raw.length; i++) {
+    // 3회 합산으로 종 모양(가우시안 유사) 분포 → 거친 점 대신 부드러운 필름 입자
+    raw[i] = (rand() + rand() + rand() - 1.5) / 1.5;
+  }
+  const c = typeof document !== 'undefined' ? document.createElement('canvas') : new OffscreenCanvas(N, N);
+  c.width = N;
+  c.height = N;
+  const gctx = c.getContext('2d');
+  const img = gctx.createImageData(N, N);
+  const d = img.data;
+  for (let y = 0; y < N; y++) {
+    const ym = ((y - 1 + N) % N) * N;
+    const y0 = y * N;
+    const yp = ((y + 1) % N) * N;
+    for (let x = 0; x < N; x++) {
+      const xm = (x - 1 + N) % N;
+      const xp = (x + 1) % N;
+      // 이음새 없이 감싸는 3×3 뭉침 → 실제 35mm 필름 은염 입자 크기감
+      const v = raw[y0 + x] * 0.44
+        + (raw[y0 + xm] + raw[y0 + xp] + raw[ym + x] + raw[yp + x]) * 0.105
+        + (raw[ym + xm] + raw[ym + xp] + raw[yp + xm] + raw[yp + xp]) * 0.035;
+      const g = Math.max(0, Math.min(255, Math.round(128 + v * 150)));
+      const i = (y0 + x) * 4;
+      d[i] = g; d[i + 1] = g; d[i + 2] = g; d[i + 3] = 255;
+    }
+  }
+  gctx.putImageData(img, 0, 0);
+  grainTileCache = c;
+  return c;
+}
+
+// 인쇄 영역(x, y, w, h) 정중앙 기준으로 비네팅과 필름 그레인을 입힌다.
+// 편집 화면의 빨간 프레임과 300dpi 실제 인쇄가 똑같은 함수를 써서 결과가 100% 일치한다.
+function applyFrameEffects(ctx, x, y, w, h, look, mode) {
+  const f = findFilter(look && look.id);
+  const amount = look && look.amount !== undefined ? look.amount : 1;
+  const adj = look && look.adj ? look.adj : null;
+  const useFilter = f.id !== 'none' && amount > 0;
+  const isPrint = mode === 'print';
+
+  // 1) 비네팅 (인쇄 영역 정중앙 기준의 부드러운 타원형 감광)
+  const filterVig = isPrint && useFilter ? (f.vignette || 0) * amount : 0;
+  const userVig = adj && adj.vig ? (adj.vig / 100) * 0.82 : 0;
+  const vig = Math.min(0.92, filterVig + userVig);
+  if (vig > 0.005) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, y, w, h);
+    ctx.clip();
+    const cx = x + w / 2, cy = y + h / 2;
+    ctx.translate(cx, cy);
+    ctx.scale(w / 2, h / 2);
+    const grad = ctx.createRadialGradient(0, 0, 0.36, 0, 0, 1.42);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(0.55, `rgba(0,0,0,${(vig * 0.24).toFixed(3)})`);
+    grad.addColorStop(1, `rgba(0,0,0,${vig.toFixed(3)})`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(-1.5, -1.5, 3, 3);
+    ctx.restore();
+  }
+
+  // 2) VSCO 스타일 필름 그레인 (overlay 합성 → 중간 톤에 입자가 자연스럽게 올라오고 흰/검정은 깔끔)
+  const filterGrain = isPrint && useFilter ? (f.grain || 0) * amount * 3.5 : 0;
+  const userGrain = adj && adj.grn ? (adj.grn / 100) * 0.82 : 0;
+  const grainAlpha = Math.min(0.92, filterGrain + userGrain);
+  if (grainAlpha > 0.005) {
+    const tile = getGrainTile();
+    const pat = ctx.createPattern(tile, 'repeat');
+    if (pat) {
+      // 화면 크기와 300dpi 인쇄 크기 사이에서 필름 입자 크기를 물리적으로 일정하게 맞춤
+      const scale = Math.max(0.85, Math.min(2.6, Math.min(w, h) / 260));
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x, y, w, h);
+      ctx.clip();
+      ctx.globalCompositeOperation = 'overlay';
+      ctx.globalAlpha = grainAlpha;
+      ctx.translate(x, y);
+      ctx.scale(scale, scale);
+      ctx.fillStyle = pat;
+      ctx.fillRect(0, 0, w / scale + 2, h / scale + 2);
+      ctx.restore();
+    }
+  }
+}
+
+// 캔버스에 그려진 사진에 필터·수동 색 조정·인쇄 보정을 적용한다.
+// look = { id, amount(0~1), adj? }, mode: 'print'(프레임 비네팅·그레인·선명도 포함) | 'preview'(색만)
+function applyLook(ctx, w, h, look, printFix, mode) {
+  const f = findFilter(look && look.id);
+  const amount = look && look.amount !== undefined ? look.amount : 1;
+  const adj = look && look.adj ? look.adj : null;
+  const useFilter = f.id !== 'none' && amount > 0;
+  const useColorAdj = hasColorAdjust(adj);
+  const isPrint = mode === 'print';
+
+  if (useFilter || printFix || useColorAdj) {
+    const img = ctx.getImageData(0, 0, w, h);
+    const d = img.data;
+    const useLut = useFilter || printFix;
+    if (useLut) {
+      const lut = colorTable(useFilter ? f : null, amount, printFix);
+      const N1 = LUT_N - 1, K = N1 / 255, NN = LUT_N * LUT_N, N3 = LUT_N * 3, NN3 = NN * 3;
+      const steps = useFilter && f.posterize ? f.posterize - 1 : 0;
+      for (let i = 0; i < d.length; i += 4) {
         const fr = d[i] * K, fg = d[i + 1] * K, fb = d[i + 2] * K;
         const r0 = fr | 0, g0 = fg | 0, b0 = fb | 0;
         const dr = fr - r0, dg = fg - g0, db = fb - b0;
@@ -317,56 +427,34 @@ function applyLook(ctx, w, h, look, printFix, mode) {
         const r01 = lut[p001] + (lut[p101] - lut[p001]) * dr;
         const r11 = lut[p011] + (lut[p111] - lut[p011]) * dr;
         const rc0 = r00 + (r10 - r00) * dg;
-        r = rc0 + (r01 + (r11 - r01) * dg - rc0) * db;
+        let r = rc0 + (r01 + (r11 - r01) * dg - rc0) * db;
 
         const g00 = lut[p000 + 1] + (lut[p100 + 1] - lut[p000 + 1]) * dr;
         const g10 = lut[p010 + 1] + (lut[p110 + 1] - lut[p010 + 1]) * dr;
         const g01 = lut[p001 + 1] + (lut[p101 + 1] - lut[p001 + 1]) * dr;
         const g11 = lut[p011 + 1] + (lut[p111 + 1] - lut[p011 + 1]) * dr;
         const gc0 = g00 + (g10 - g00) * dg;
-        g = gc0 + (g01 + (g11 - g01) * dg - gc0) * db;
+        let g = gc0 + (g01 + (g11 - g01) * dg - gc0) * db;
 
         const b00 = lut[p000 + 2] + (lut[p100 + 2] - lut[p000 + 2]) * dr;
         const b10 = lut[p010 + 2] + (lut[p110 + 2] - lut[p010 + 2]) * dr;
         const b01 = lut[p001 + 2] + (lut[p101 + 2] - lut[p001 + 2]) * dr;
         const b11 = lut[p011 + 2] + (lut[p111 + 2] - lut[p011 + 2]) * dr;
         const bc0 = b00 + (b10 - b00) * dg;
-        b = bc0 + (b01 + (b11 - b01) * dg - bc0) * db;
-      } else {
-        r = d[i] / 255; g = d[i + 1] / 255; b = d[i + 2] / 255;
-      }
+        let b = bc0 + (b01 + (b11 - b01) * dg - bc0) * db;
 
-      if (steps) {
-        const pr = Math.round(r * steps) / steps, pg = Math.round(g * steps) / steps, pb = Math.round(b * steps) / steps;
-        r += (pr - r) * amount; g += (pg - g) * amount; b += (pb - b) * amount;
+        if (steps) {
+          const pr = Math.round(r * steps) / steps, pg = Math.round(g * steps) / steps, pb = Math.round(b * steps) / steps;
+          r += (pr - r) * amount; g += (pg - g) * amount; b += (pb - b) * amount;
+        }
+        d[i] = r * 255; d[i + 1] = g * 255; d[i + 2] = b * 255;
       }
-      if (expMul !== 1) { r *= expMul; g *= expMul; b *= expMul; }
-      if (shdAmt) {
-        const l = 0.299 * r + 0.587 * g + 0.114 * b;
-        const lc = l < 0 ? 0 : l > 1 ? 1 : l;
-        const ws = (1 - lc) * (1 - lc) * shdAmt;
-        r += ws; g += ws; b += ws;
-      }
-      if (conFac !== 1) {
-        r = (r - 0.5) * conFac + 0.5; g = (g - 0.5) * conFac + 0.5; b = (b - 0.5) * conFac + 0.5;
-      }
-      if (tmpAmt) { r += tmpAmt; b -= tmpAmt; }
-      if (satFac !== 1) {
-        const l2 = 0.299 * r + 0.587 * g + 0.114 * b;
-        r = l2 + (r - l2) * satFac; g = l2 + (g - l2) * satFac; b = l2 + (b - l2) * satFac;
-      }
-      if (vig) {
-        const dx = x - cx;
-        const k = 1 - vig * (dx * dx + dy2) * invMaxR2;
-        r *= k; g *= k; b *= k;
-      }
-      if (grain) {
-        const n = (rand() - 0.5) * grain;
-        r += n; g += n; b += n;
-      }
-      d[i] = r * 255; d[i + 1] = g * 255; d[i + 2] = b * 255;
     }
+    if (useColorAdj) applyColorAdjust(d, d, adj);
+    if (isPrint && printFix && w * h <= PRINT_FIX.sharpenMaxPx) sharpen(d, w, h, PRINT_FIX.sharpen);
+    ctx.putImageData(img, 0, 0);
   }
-  if (isPrint && printFix && w * h <= PRINT_FIX.sharpenMaxPx) sharpen(d, w, h, PRINT_FIX.sharpen);
-  ctx.putImageData(img, 0, 0);
+
+  // 실제 인쇄/칸 렌더링에서는 캔버스 전체가 곧 인쇄 영역이므로 바로 비네팅·그레인 적용
+  if (isPrint) applyFrameEffects(ctx, 0, 0, w, h, look, 'print');
 }
