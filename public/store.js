@@ -38,9 +38,11 @@ const Store = (() => {
 
       (state.cells || []).forEach((c) => {
         if (!c || !c.file || !c.fileId) return;
-        needed.add(c.fileId);
-        // 아직 저장되지 않은 새 사진 파일만 저장 (이미 있으면 건너뜀)
-        if (!savedFiles.has(c.fileId)) t.put(c.file, FILE_PREFIX + c.fileId);
+        if (!needed.has(c.fileId)) {
+          needed.add(c.fileId);
+          // 아직 저장되지 않은 새 사진 파일만 저장 (복제된 중복 ID도 한 번만 저장)
+          if (!savedFiles.has(c.fileId)) t.put(c.file, FILE_PREFIX + c.fileId);
+        }
       });
 
       // 더 이상 쓰지 않는 예전 사진 파일 정리

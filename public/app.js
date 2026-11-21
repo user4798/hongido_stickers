@@ -49,6 +49,13 @@ function setBusy(on, text = '') {
 
 // ---------- 칸 채우기 ----------
 
+// 같은 원본 사진을 복제해 여러 칸이 공유할 수 있으므로, 다른 칸에서 안 쓸 때만 메모리를 비운다
+function releaseIfUnused(source, exceptIndex = -1) {
+  if (!source) return;
+  const inUse = cells.some((c, i) => i !== exceptIndex && c && c.source === source);
+  if (!inUse) releaseSource(source);
+}
+
 // 칸 사진 만들기: 미리 보기가 나오면 바로 칸에 보여 주고, 인쇄용 JPEG는 뒤에서 기다린다
 async function setCellPhoto(index, source, edit, look = NO_LOOK, save = true) {
   const job = renderCell(source, edit, layout.cells[index], look);
@@ -56,7 +63,7 @@ async function setCellPhoto(index, source, edit, look = NO_LOOK, save = true) {
   const old = cells[index];
   if (old) {
     if (old.preview) freeCanvas(old.preview);
-    if (old.source !== source) releaseSource(old.source);
+    if (old.source !== source) releaseIfUnused(old.source, index);
   }
   const entry = { source, edit, look, preview, print: null, ready: null };
   entry.ready = job.done.then((p) => { entry.print = p; return p; });
@@ -67,11 +74,12 @@ async function setCellPhoto(index, source, edit, look = NO_LOOK, save = true) {
 
 function clearCell(index) {
   const c = cells[index];
+  cells[index] = null;
+  lastPrinted = lastPrinted.filter((k) => k !== index);
   if (c) {
     if (c.preview) freeCanvas(c.preview);
-    releaseSource(c.source);
+    releaseIfUnused(c.source);
   }
-  cells[index] = null;
   scheduleSave();
 }
 
@@ -159,13 +167,27 @@ function remainingAfterPrint() {
   return cells.filter((_, i) => !used[i] && !lastPrinted.includes(i)).length;
 }
 
+let continueFromTap = false;   // 빈 칸을 눌러 '이어 쓰기' 창이 열렸는지
+
 function clearPhotos() {
+  const seen = new Set();
   cells.forEach((c) => {
     if (!c) return;
     if (c.preview) freeCanvas(c.preview);
-    releaseSource(c.source);
+    if (c.source && !seen.has(c.source)) {
+      seen.add(c.source);
+      releaseSource(c.source);
+    }
   });
   cells = layout.cells.map(() => null);
+}
+
+function openContinueSheet(fromTap) {
+  const left = remainingAfterPrint();
+  continueFromTap = fromTap;
+  $('continueTitle').textContent = `지난번 인쇄한 용지에 빈 칸이 ${left}개 남아 있어요`;
+  $('continueAdd').hidden = !fromTap;
+  openSheet('continueSheet');
 }
 
 function newSheet() {
@@ -173,10 +195,8 @@ function newSheet() {
   const n = cells.filter(Boolean).length;
   const usedCount = used.filter(Boolean).length;
   if (!n && !usedCount) return;
-  const left = remainingAfterPrint();
-  if (left > 0) {
-    $('continueTitle').textContent = `지난번 인쇄한 용지에 빈 칸이 ${left}개 남아 있어요`;
-    openSheet('continueSheet');
+  if (remainingAfterPrint() > 0) {
+    openContinueSheet(false);
     return;
   }
   const msg = n
@@ -247,6 +267,7 @@ async function addFiles(files, slots) {
     pending = k + 1 < list.length ? loadSourceSafe(list[k + 1], layout.cells[slots[k + 1]]) : null;
     if (loaded.ok) {
       try {
+        lastPrinted = lastPrinted.filter((idx) => idx !== slots[k]);
         await setCellPhoto(slots[k], loaded.src, defaultEdit(loaded.src, cell), NO_LOOK, false);
       } catch (e) {
         releaseSource(loaded.src);
@@ -289,6 +310,32 @@ async function applyEdit(index, edit, look, applyAll) {
   if (applyAll && targets.length > 1) toast(`${targets.length}칸에 ${findFilter(look.id).name} 적용`);
 }
 
+async function stepEditor(index, dir, edit, look, applyAll, changed) {
+  const filled = cells.map((c, i) => (c ? i : -1)).filter((i) => i >= 0);
+  const pos = filled.indexOf(index);
+  if (changed) await applyEdit(index, edit, look, applyAll);
+  if (filled.length < 2 || pos < 0) return;
+  const nextIdx = filled[(pos + dir + filled.length) % filled.length];
+  if (cells[nextIdx]) openEditor(nextIdx);
+}
+
+async function duplicateCell(index, edit, look, applyAll, changed) {
+  const c = cells[index];
+  if (!c) return;
+  if (changed) await applyEdit(index, edit, look, applyAll);
+  const slots = emptySlotsFrom((index + 1) % cells.length);
+  if (!slots.length) { toast('남은 빈 칸이 없어요'); return; }
+  const dest = slots[0];
+  setBusy(true, '빈 칸에 복제 중');
+  cellButton(dest).classList.add('loading');
+  const nextEdit = sameSize(index, dest) ? { ...edit } : defaultEdit(c.source, layout.cells[dest]);
+  await setCellPhoto(dest, c.source, nextEdit, { ...look });
+  cellButton(dest).classList.remove('loading');
+  setBusy(false);
+  render();
+  toast(`${dest + 1}번 칸에 복제했어요`);
+}
+
 function openEditor(index) {
   const c = cells[index];
   Editor.open({
@@ -299,7 +346,10 @@ function openEditor(index) {
     cell: layout.cells[index],
     sticker: preset.sticker || null,
     filledCount: cells.filter(Boolean).length,
+    canDuplicate: emptySlotsFrom((index + 1) % cells.length).length > 0,
     onDone: (edit, look, applyAll) => applyEdit(index, edit, look, applyAll),
+    onStep: (dir, edit, look, applyAll, changed) => stepEditor(index, dir, edit, look, applyAll, changed),
+    onDuplicate: (edit, look, applyAll, changed) => duplicateCell(index, edit, look, applyAll, changed),
     onReplace: () => { targetCell = index; $('oneInput').click(); },
     onClear: () => { clearCell(index); render(); },
   });
@@ -330,6 +380,7 @@ function sendToPrint() {
     if (ok) {
       lastPrinted = printed;
       scheduleSave();
+      render();
     }
     return ok;
   });
@@ -428,6 +479,7 @@ function buildPaper() {
 }
 
 function render() {
+  const showPrinted = remainingAfterPrint() > 0;
   cells.forEach((c, i) => {
     const btn = cellButton(i);
     btn.classList.toggle('filled', !!c);
@@ -440,6 +492,7 @@ function render() {
       shown.remove();
     }
     btn.classList.toggle('used', !c && !!used[i]);
+    btn.classList.toggle('printed', !!c && showPrinted && lastPrinted.includes(i));
     btn.setAttribute('aria-label', c ? `${i + 1}번 칸 사진` : used[i] ? `${i + 1}번 칸 사용함` : `${i + 1}번 칸 비어 있음, 사진 고르기`);
   });
   const count = cells.filter(Boolean).length;
@@ -570,7 +623,15 @@ async function switchPreset(id) {
   }
   closeSheet('presetMenu');
   kept.forEach((c) => c.preview && freeCanvas(c.preview));
-  kept.slice(room).forEach((c) => releaseSource(c.source));
+  const move = kept.slice(0, room);
+  const keptSources = new Set(move.map((c) => c.source));
+  const released = new Set();
+  kept.slice(room).forEach((c) => {
+    if (c.source && !keptSources.has(c.source) && !released.has(c.source)) {
+      released.add(c.source);
+      releaseSource(c.source);
+    }
+  });
   presetId = id;
   preset = next;
   layout = nextLayout;
@@ -584,25 +645,30 @@ async function switchPreset(id) {
   fitPaper();
   render();
   // 남길 사진을 새 칸 크기에 맞춰 다시 만든다 (필터는 그대로)
-  const move = kept.slice(0, room);
   if (move.length) {
     setBusy(true, '용지에 맞추는 중');
     move.forEach((_, i) => cellButton(i).classList.add('loading'));
+    const upgraded = new Map();
     for (let i = 0; i < move.length; i++) {
       let src = move[i].source;
       // 새 칸이 더 큰 사진을 필요로 하면 원본 파일에서 다시 만든다 (fileId는 유지해 재저장 방지)
       const need = sourceMaxFor(layout.cells[i]);
       if (need > src.maxPx && src.file) {
-        try {
-          const fresh = await loadSource(src.file, need, src.fileId);
-          releaseSource(src);
-          src = fresh;
-        } catch (e) { /* 실패하면 있던 크기로 */ }
+        if (upgraded.has(src)) {
+          src = upgraded.get(src);
+        } else {
+          try {
+            const fresh = await loadSource(src.file, need, src.fileId);
+            upgraded.set(src, fresh);
+            src = fresh;
+          } catch (e) { /* 실패하면 있던 크기로 */ }
+        }
       }
       await setCellPhoto(i, src, defaultEdit(src, layout.cells[i]), move[i].look, false);
       cellButton(i).classList.remove('loading');
       render();
     }
+    upgraded.forEach((_, oldSrc) => releaseIfUnused(oldSrc));
     setBusy(false);
     render();
   }
@@ -611,11 +677,53 @@ async function switchPreset(id) {
 }
 
 function openSheet(id) {
-  $(id).hidden = false;
+  const el = $(id);
+  const panel = el && el.querySelector('.panel');
+  if (panel) { panel.style.transform = ''; panel.style.transition = ''; }
+  el.hidden = false;
 }
 
 function closeSheet(id) {
-  $(id).hidden = true;
+  const el = $(id);
+  const panel = el && el.querySelector('.panel');
+  if (panel) { panel.style.transform = ''; panel.style.transition = ''; }
+  el.hidden = true;
+}
+
+// 아래에서 올라오는 창을 손가락으로 아래로 쓸어내려 닫기
+function bindSheetSwipe(id) {
+  const overlay = $(id);
+  const panel = overlay && overlay.querySelector('.panel');
+  if (!panel) return;
+  let s = null;
+  panel.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('input, select, textarea')) return;
+    if (panel.scrollTop > 0) return;
+    s = { id: e.pointerId, y0: e.clientY, dy: 0, dragging: false };
+  });
+  panel.addEventListener('pointermove', (e) => {
+    if (!s || e.pointerId !== s.id) return;
+    const dy = e.clientY - s.y0;
+    if (!s.dragging) {
+      if (dy < 10) return;
+      s.dragging = true;
+      panel.style.transition = 'none';
+      try { panel.setPointerCapture(s.id); } catch (err) { /* 무시 */ }
+    }
+    s.dy = Math.max(0, dy);
+    panel.style.transform = `translateY(${s.dy}px)`;
+  });
+  const end = (e) => {
+    if (!s || e.pointerId !== s.id) return;
+    const { dragging, dy } = s;
+    s = null;
+    if (!dragging) return;
+    panel.style.transition = '';
+    panel.style.transform = '';
+    if (dy > 64) closeSheet(id);
+  };
+  panel.addEventListener('pointerup', end);
+  panel.addEventListener('pointercancel', end);
 }
 
 // ---------- 길게 눌러 끌어서 옮기기 · 바꾸기 ----------
@@ -662,8 +770,12 @@ function startDrag(e) {
   g.style.height = `${r.height}px`;
   drag.dx = drag.x0 - r.left;
   drag.dy = drag.y0 - r.top;
-  g.style.transform = `translate(${r.left}px, ${r.top}px) scale(1.08)`;
+  // 0.3초 도달 시 사진이 부드럽게 떠오르는 짧은 애니메이션
+  g.style.transform = `translate(${r.left}px, ${r.top}px) scale(1)`;
+  g.style.transition = 'transform 0.14s ease-out';
   document.body.appendChild(g);
+  g.offsetWidth;
+  g.style.transform = `translate(${r.left}px, ${r.top}px) scale(1.08)`;
   drag.ghost = g;
   btn.classList.add('lifted');
   // 끄는 동안 아래 큰 버튼이 '휴지통'으로 바뀐다
@@ -680,6 +792,7 @@ function onPaperMove(e) {
     if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) > 10) cancelDrag();
     return;
   }
+  drag.ghost.style.transition = 'none';
   drag.ghost.style.transform = `translate(${e.clientX - drag.dx}px, ${e.clientY - drag.dy}px) scale(1.08)`;
   // 휴지통 위인지
   const tr = $('printBtn').getBoundingClientRect();
@@ -717,6 +830,7 @@ function onPaperUp(e) {
   }
   if (over < 0) return;
   [cells[from], cells[over]] = [cells[over], cells[from]];
+  lastPrinted = lastPrinted.filter((k) => k !== from && k !== over);
   render();
   scheduleSave();
 }
@@ -771,6 +885,11 @@ function onCellTap(i) {
     return;
   }
   if (!cells[i]) {
+    // 방금 인쇄한 칸이 남아 있으면 중복 인쇄를 막기 위해 먼저 이어 쓰기를 물어본다
+    if (remainingAfterPrint() > 0) {
+      openContinueSheet(true);
+      return;
+    }
     $('manyInput').click();   // 빈 칸: 여러 장 고르기 → 이 칸부터 채움
     return;
   }
@@ -808,9 +927,39 @@ document.addEventListener('DOMContentLoaded', () => {
   // 빈 칸만 인쇄
   $('markFromMenu').addEventListener('click', enterMarkMode);
   $('pfMarkBtn').addEventListener('click', enterMarkMode);
-  $('continueGo').addEventListener('click', () => { closeSheet('continueSheet'); continueSheet(); });
-  $('continueFresh').addEventListener('click', () => { closeSheet('continueSheet'); startFresh(); });
+  $('continueGo').addEventListener('click', () => {
+    const pickAfter = continueFromTap;
+    continueFromTap = false;
+    closeSheet('continueSheet');
+    continueSheet();
+    if (pickAfter) $('manyInput').click();
+  });
+  $('continueAdd').addEventListener('click', () => {
+    continueFromTap = false;
+    closeSheet('continueSheet');
+    lastPrinted = [];
+    scheduleSave();
+    render();
+    $('manyInput').click();
+  });
+  $('continueFresh').addEventListener('click', () => {
+    const pickAfter = continueFromTap;
+    continueFromTap = false;
+    closeSheet('continueSheet');
+    startFresh();
+    if (pickAfter) { targetCell = 0; $('manyInput').click(); }
+  });
   $('continueSheet').addEventListener('click', (e) => { if (e.target.id === 'continueSheet') closeSheet('continueSheet'); });
+
+  // 바텀 시트 아래로 쓸어내려 닫기 + PC Esc 키 닫기
+  ['settings', 'presetMenu', 'continueSheet', 'preflight'].forEach(bindSheetSwipe);
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (Editor.isOpen()) { Editor.cancel(); return; }
+    ['preflight', 'continueSheet', 'presetMenu', 'settings'].forEach((id) => {
+      if (!$(id).hidden) closeSheet(id);
+    });
+  });
 
   // 앱을 나가거나 다른 화면으로 이동할 때 예약된 자동 저장을 즉시 실행
   document.addEventListener('visibilitychange', () => {

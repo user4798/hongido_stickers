@@ -70,7 +70,11 @@
   <div id="editor" class="editor" hidden role="dialog" aria-labelledby="editorTitle">
     <header class="editor-bar">
       <button id="editorCancel" class="text-btn">취소</button>
-      <h2 id="editorTitle"></h2>
+      <div class="editor-nav">
+        <button id="editorPrev" class="nav-btn" aria-label="이전 칸" hidden><span data-icon="chevronLeft"></span></button>
+        <h2 id="editorTitle"></h2>
+        <button id="editorNext" class="nav-btn" aria-label="다음 칸" hidden><span data-icon="chevronRight"></span></button>
+      </div>
       <button id="editorDone" class="text-btn accent">완료</button>
     </header>
     <div id="editorStage" class="editor-stage">
@@ -84,11 +88,12 @@
     </div>
     <div class="rotate-panel" id="rotatePanel" hidden>
       <div class="angle-row">
-        <span class="angle-value" id="angleValue">0°</span>
+        <button id="angleValue" class="angle-value" type="button" aria-label="각도 0도로 맞추기">0°</button>
         <input id="angleRuler" class="angle-ruler" type="range" min="-45" max="45" step="0.5" value="0" aria-label="각도">
       </div>
       <div class="rotate-btns">
-        <button id="rot90Btn" class="pill-btn"><span data-icon="rotate"></span>90° 돌리기</button>
+        <button id="rotL90Btn" class="pill-btn"><span data-icon="rotateLeft"></span>−90°</button>
+        <button id="rot90Btn" class="pill-btn"><span data-icon="rotate"></span>+90°</button>
         <button id="flipBtn" class="pill-btn" aria-pressed="false"><span data-icon="flip"></span>좌우 반전</button>
       </div>
     </div>
@@ -107,6 +112,7 @@
     <div class="editor-tools">
       <button id="editorRotate" class="tool"><span data-icon="rotate"></span>회전</button>
       <button id="editorFit" class="tool"><span data-icon="fit"></span>맞춤</button>
+      <button id="editorDup" class="tool" hidden><span data-icon="copy"></span>복제</button>
       <button id="editorReplace" class="tool"><span data-icon="replace"></span>바꾸기</button>
       <button id="editorClear" class="tool danger"><span data-icon="trash"></span>비우기</button>
     </div>
@@ -154,6 +160,7 @@
       <h2 id="continueTitle"></h2>
       <p class="panel-sub">같은 용지를 다시 넣어 남은 칸에만 인쇄할 수 있어요</p>
       <button id="continueGo" class="accent-btn">남은 칸 이어 쓰기</button>
+      <button id="continueAdd" class="link-btn" hidden>기존 사진 그대로 두고 추가하기</button>
       <button id="continueFresh" class="link-btn">새 용지로 시작</button>
     </div>
   </div>

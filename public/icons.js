@@ -14,11 +14,14 @@ const ICONS = {
   replace: '<rect x="3.5" y="5" width="13" height="13" rx="2"/><path d="M3.5 15l3.6-3.6a1.2 1.2 0 0 1 1.7 0L13 15.6"/>' +
     '<circle cx="12.2" cy="9" r="1.2"/><path d="M19 8.5v8a2 2 0 0 1-2 2H9"/><path d="M11 16.5l-2 2 2 2"/>',
   rotate: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4v4.5H15"/>',
+  rotateLeft: '<path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><path d="M4.5 4v4.5H9"/>',
+  copy: '<rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2"/><path d="M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5"/>',
   trash: '<path d="M4.5 7h15"/><path d="M9.5 7V4.8h5V7"/><path d="M6.5 7l.9 12.2a1 1 0 0 0 1 .8h7.2a1 1 0 0 0 1-.8L17.5 7"/>' +
     '<line x1="10.5" y1="10.5" x2="10.5" y2="16.5"/><line x1="13.5" y1="10.5" x2="13.5" y2="16.5"/>',
   back: '<path d="M14.5 5.5L8 12l6.5 6.5"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   chevron: '<path d="M7 10l5 5 5-5"/>',
+  chevronLeft: '<path d="M14 7l-5 5 5 5"/>',
   chevronRight: '<path d="M10 7l5 5-5 5"/>',
   arrowUp: '<path d="M12 19V5"/><path d="M6.5 10.5L12 5l5.5 5.5"/>',
   flip: '<line x1="12" y1="3.5" x2="12" y2="20.5" stroke-dasharray="2 2"/><path d="M9 7L3.5 17H9Z"/><path d="M15 7l5.5 10H15Z"/>',

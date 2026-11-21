@@ -416,7 +416,9 @@ const Editor = (() => {
       const { fine } = splitAngle(edit.angle);
       const v = Math.round(fine * 2) / 2;
       if (document.activeElement !== $('angleRuler')) $('angleRuler').value = v;
-      $('angleValue').textContent = `${v > 0 ? '+' : ''}${v.toFixed(v % 1 ? 1 : 0)}°`;
+      const valEl = $('angleValue');
+      valEl.textContent = `${v > 0 ? '+' : ''}${v.toFixed(v % 1 ? 1 : 0)}°`;
+      valEl.classList.toggle('changed', Math.abs(v) >= 0.5);
       $('flipBtn').classList.toggle('on', !!edit.flip);
       $('flipBtn').setAttribute('aria-pressed', edit.flip ? 'true' : 'false');
     }
@@ -503,6 +505,9 @@ const Editor = (() => {
     refreshPreview();
     buildStrip();
     $('applyAllBtn').hidden = !(o.filledCount > 1);
+    $('editorPrev').hidden = !(o.filledCount > 1 && o.onStep);
+    $('editorNext').hidden = !(o.filledCount > 1 && o.onStep);
+    $('editorDup').hidden = !o.canDuplicate;
     syncFilterUI();
     $('editorTitle').textContent = o.title;
     $('editorHint').textContent = isFinePointer() ? '휠: 확대 · 끌기: 이동' : '한 손가락 이동 · 두 손가락 확대·회전';
@@ -531,14 +536,20 @@ const Editor = (() => {
     opts = null;
   }
 
-  function finish(cb) {
+  function cancel() {
+    if (!opts) return;
+    if (isDirty() && !confirm('바꾼 내용을 버리고 닫을까요?')) return;
+    close();
+  }
+
+  function finish(cb, alwaysCall = false) {
     const o = opts;
     const result = clampEdit({ ...edit, angle: snapAngle(edit.angle) }, o.source, pxW, pxH);
     const changed = !sameEdit(result, initEdit) || !sameLook(look, initLook) || applyAll;
     const nextLook = { ...look };
     const all = applyAll;
     close();
-    if (changed) cb(o, result, nextLook, all);
+    if (changed || alwaysCall) cb(o, result, nextLook, all, changed);
   }
 
   function init() {
@@ -563,11 +574,10 @@ const Editor = (() => {
     }));
     window.addEventListener('resize', () => { if (opts) { layoutStage(); draw(); } });
 
-    $('editorCancel').addEventListener('click', () => {
-      if (isDirty() && !confirm('바꾼 내용을 버리고 닫을까요?')) return;
-      close();
-    });
+    $('editorCancel').addEventListener('click', cancel);
     $('editorDone').addEventListener('click', () => finish((o, r, nextLook, all) => o.onDone(r, nextLook, all)));
+    $('editorPrev').addEventListener('click', () => finish((o, r, nextLook, all, changed) => o.onStep(-1, r, nextLook, all, changed), true));
+    $('editorNext').addEventListener('click', () => finish((o, r, nextLook, all, changed) => o.onStep(1, r, nextLook, all, changed), true));
     $('filterAmount').addEventListener('input', (e) => {
       look = { ...look, amount: Number(e.target.value) / 100 };
       $('filterAmountValue').textContent = e.target.value;
@@ -575,6 +585,16 @@ const Editor = (() => {
     });
     $('applyAllBtn').addEventListener('click', () => { applyAll = !applyAll; syncFilterUI(); });
     $('editorRotate').addEventListener('click', () => setRotateMode(!rotateMode));
+    $('angleValue').addEventListener('click', () => {
+      rulerBase = null;
+      const base = Math.round(edit.angle / QUARTER) * QUARTER;
+      if (Math.abs(edit.angle - base) < 1e-4) return;
+      animateTo(clampEdit({ ...edit, angle: base }, opts.source, pxW, pxH));
+    });
+    $('rotL90Btn').addEventListener('click', () => {
+      rulerBase = null;
+      animateTo(clampEdit({ ...edit, angle: edit.angle - QUARTER }, opts.source, pxW, pxH));
+    });
     $('rot90Btn').addEventListener('click', () => {
       rulerBase = null;
       animateTo(clampEdit({ ...edit, angle: edit.angle + QUARTER }, opts.source, pxW, pxH));
@@ -589,6 +609,7 @@ const Editor = (() => {
     $('zoomRange').addEventListener('input', onZoomInput);
     $('zoomRange').addEventListener('change', () => $('zoomRange').blur());
     $('editorFit').addEventListener('click', () => { rulerBase = null; animateTo(defaultEdit(opts.source, opts.cell)); });
+    $('editorDup').addEventListener('click', () => finish((o, r, nextLook, all, changed) => o.onDuplicate(r, nextLook, all, changed), true));
     $('editorReplace').addEventListener('click', () => { const o = opts; close(); o.onReplace(); });
     $('editorClear').addEventListener('click', () => {
       if (!confirm('이 칸의 사진을 비울까요?')) return;
@@ -600,5 +621,5 @@ const Editor = (() => {
 
   document.addEventListener('DOMContentLoaded', init);
 
-  return { open, isOpen: () => !!opts, current: () => edit };
+  return { open, cancel, isOpen: () => !!opts, current: () => edit };
 })();
