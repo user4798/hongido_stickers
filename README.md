@@ -6,7 +6,7 @@
 
 <p align="center">
   사진만 고르면 스티커 용지의 정해진 칸에 꼭 맞게 인쇄되는 아이폰용 웹앱<br>
-  <b>v1.0.2</b> · 2026.11.21 · Made by seoulrain for Hongido
+  <b>v1.0.3</b> · 2026.11.21 · Made by Seoulrain for Hongido
 </p>
 
 ---
@@ -98,6 +98,7 @@ python -m http.server 8000 --directory public
 ## 버전
 | 버전 | 날짜 | 내용 |
 |---|---|---|
+| v1.0.3 | 2026.11.21 | 만든 사람 표기를 Seoulrain(첫 글자 대문자)으로 |
 | v1.0.2 | 2026.11.21 | 만든 사람 표기를 seoulrain으로 |
 | v1.0.1 | 2026.11.21 | 넣는 방향 표시를 영문(FEED)으로, 만든 사람 표시를 영문으로 |
 | v1.0.0 | 2026.11.21 | 첫 정식 버전. 9칸 스티커 인쇄, 편집, 필터, 자리 바꾸기, 자동 저장, 오프라인, 4×6 인화지 |
@@ -105,7 +106,7 @@ python -m http.server 8000 --directory public
 자세한 변경 이유는 `SPEC.md`의 '결정 기록'에 날짜별로 적혀 있습니다.
 
 ## 만든 사람
-**seoulrain**(서울비)가 **Hongido**(홍이도)를 위해 만들었습니다.
+**Seoulrain**(서울비)가 **Hongido**(홍이도)를 위해 만들었습니다.
 기획과 결정은 서울비가 하고, 코드는 [Claude Code](https://claude.com/claude-code)(Anthropic의 AI 코딩 도구)와 함께 작성했습니다.
 
 에이원(A-one)은 해당 회사의 상표이며, 이 앱은 용지 규격에 맞춰 인쇄하기 위해 품번을 표기할 뿐 회사와 관계가 없습니다.
